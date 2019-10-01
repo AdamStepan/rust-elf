@@ -125,90 +125,170 @@ impl OsAbi {
         }
     }
 }
-
 #[derive(Debug)]
 struct ElfFileHeader {
-    magic: [u8; 4],
-    class: FileClass,
-    encoding: Encoding,
-    version_: u8, // XXX: must be EV_CURRENT
-    os_abi: OsAbi,
-    abi_version: u8,
-    padding: [u8; 7],
-
-    object_type: ObjectType,
-    architecture: u16, // XXX: use enum for this
-    version: Version,
-    entry_point_address: u64,
-    program_header_offset: u64,
-    section_header_offset: u64,
-    flags: u32,
-    size: u16,
+    // Conglomeration of the identification bytes, must be \177ELF
+    e_magic: [u8; 4],
+    // File class
+    e_class: FileClass,
+    // Data encoding
+    e_encoding: Encoding,
+    // File version, value must be EV_CURRENT
+    e_version_: u8,
+    // OS ABI identification
+    e_os_abi: OsAbi,
+    // ABI version
+    e_os_abi_version: u8,
+    // Padding bytes
+    e_padding_: [u8; 7],
+    // Object file type
+    e_type: ObjectType,
+    // Architecture
+    e_machine: u16,
+    // Object file version
+    e_version: Version,
+    // Entry point virtual address
+    e_entry: u64,
+    // Program header table file offset
+    e_phoff: u64,
+    // Section header table file offset
+    e_shoff: u64,
+    // Processor-specific flags
+    e_flags: u32,
+    // ELF header size in bytes
+    e_ehsize: u16,
+    // Program header table entry size
+    e_phentsize: u16,
+    // Program header table entry count
+    e_phnum: u16,
+    // Section header table entry size
+    e_shentsize: u16,
+    // Section header table entry count
+    e_shnum: u16,
+    // Section header string table index
+    e_shstrndx: u16,
 }
 
 impl ElfFileHeader {
     fn new(buffer: &Vec<u8>) -> ElfFileHeader {
         let mut reader = Cursor::new(buffer);
 
-        let mut header = ElfFileHeader {
-            magic: [0; 4],
-            class: FileClass::ElfClass64,
-            encoding: Encoding::None,
-            version_: 0,
-            os_abi: OsAbi::HpUx,
-            abi_version: 0,
-            padding: [0; 7],
-
-            object_type: ObjectType::NoFileType,
-            architecture: 0,
-            version: Version::Unspecified,
-            entry_point_address: 0,
-            program_header_offset: 0,
-            section_header_offset: 0,
-            flags: 0,
-            size: 0,
-        };
-
         // XXX: check magic
-        reader.read_exact(&mut header.magic).unwrap();
+        let mut e_magic: [u8; 4] = [0; 4];
+        reader.read_exact(&mut e_magic).unwrap();
 
-        header.class = FileClass::new(reader.read_u8().unwrap());
-        header.encoding = Encoding::new(reader.read_u8().unwrap());
-        header.version_ = reader.read_u8().unwrap();
-        header.os_abi = OsAbi::new(reader.read_u8().unwrap());
-        header.abi_version = reader.read_u8().unwrap();
-        reader.read_exact(&mut header.padding).unwrap();
+        let e_class = FileClass::new(reader.read_u8().unwrap());
+        let e_encoding = Encoding::new(reader.read_u8().unwrap());
+        let e_version_ = reader.read_u8().unwrap();
+        let e_os_abi = OsAbi::new(reader.read_u8().unwrap());
+        let e_os_abi_version = reader.read_u8().unwrap();
 
-        header.object_type = ObjectType::new(reader.read_u16::<LittleEndian>().unwrap());
-        header.architecture = reader.read_u16::<LittleEndian>().unwrap();
-        header.version = Version::new(reader.read_u32::<LittleEndian>().unwrap());
-        header.entry_point_address = reader.read_u64::<LittleEndian>().unwrap();
-        header.program_header_offset = reader.read_u64::<LittleEndian>().unwrap();
-        header.section_header_offset = reader.read_u64::<LittleEndian>().unwrap();
-        header.flags = reader.read_u32::<LittleEndian>().unwrap();
-        header.size = reader.read_u16::<LittleEndian>().unwrap();
+        let mut e_padding_: [u8; 7] = [0; 7];
+        reader.read_exact(&mut e_padding_).unwrap();
 
-        return header;
+        let e_type = ObjectType::new(reader.read_u16::<LittleEndian>().unwrap());
+        let e_machine = reader.read_u16::<LittleEndian>().unwrap();
+        let e_version = Version::new(reader.read_u32::<LittleEndian>().unwrap());
+        let e_entry = reader.read_u64::<LittleEndian>().unwrap();
+        let e_phoff = reader.read_u64::<LittleEndian>().unwrap();
+        let e_shoff = reader.read_u64::<LittleEndian>().unwrap();
+        let e_flags = reader.read_u32::<LittleEndian>().unwrap();
+        let e_ehsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_phentsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_phnum = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shentsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shnum = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shstrndx = reader.read_u16::<LittleEndian>().unwrap();
+
+        ElfFileHeader {
+            e_magic,
+            e_class,
+            e_encoding,
+            e_version_,
+            e_os_abi,
+            e_os_abi_version,
+            e_padding_,
+            e_type,
+            e_machine,
+            e_version,
+            e_entry,
+            e_phoff,
+            e_shoff,
+            e_flags,
+            e_ehsize,
+            e_phentsize,
+            e_phnum,
+            e_shentsize,
+            e_shnum,
+            e_shstrndx,
+        }
     }
+}
+
+#[derive(Debug)]
+enum SectionHeaderType {
+    // Section header table entry unused
+    Null,
+    // Program data
+    Progbits,
+    // Symbol table
+    Symtab,
+    // String table
+    Strtab,
+    // Relocation entries with addends
+    Rela,
+    // Symbol hash table
+    Hash,
+    // Dynamic linking information
+    Dynamic,
+    // Notes
+}
+
+struct SectionHeader {
+    // Section name (string tbl index)
+    sh_name: u32,
+    // Section type
+    sh_type: u32,
+    // Section flags
+    sh_flags: u64,
+    // Sectuin virtual address at execution
+    sh_addr: u64,
+    // Section file offset
+    sh_offset: u64,
+    // Section size in bytes
+    sh_size: u64,
+    // Link to another section
+    sh_link: u32,
+    // Additional section information
+    sh_info: u32,
+    // Section Alignment
+    sh_addralign: u64,
+    // Entry size if section holds the table
+    sh_entisize: u64,
 }
 
 impl fmt::Display for ElfFileHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Elf Header:")?;
-        writeln!(f, "Magic:\t\t\t{:x?}", self.magic)?;
-        writeln!(f, "Class:\t\t\t{:?}", self.class)?;
-        writeln!(f, "Encoding:\t\t{:?}", self.encoding)?;
-        writeln!(f, "OS/ABI:\t\t\t{:?}", self.os_abi)?;
-        writeln!(f, "ABI Version:\t\t{}", self.abi_version)?;
-        writeln!(f, "Padding: \t\t{:x?}", self.padding)?;
-        writeln!(f, "Type:\t\t\t{:?}", self.object_type)?;
-        writeln!(f, "Architecture:\t\t{:?}", self.architecture)?;
-        writeln!(f, "Version:\t\t{:?}", self.version)?;
-        writeln!(f, "Entry point address:\t{:#x}", self.entry_point_address)?;
-        writeln!(f, "Program header offset:\t{}", self.program_header_offset)?;
-        writeln!(f, "Section header offset:\t{}", self.section_header_offset)?;
-        writeln!(f, "Flags:\t\t\t{}", self.flags)?;
-        writeln!(f, "Size of this header:\t{}", self.size)
+        writeln!(f, "Magic:\t\t\t\t{:x?}", self.e_magic)?;
+        writeln!(f, "Class:\t\t\t\t{:?}", self.e_class)?;
+        writeln!(f, "Encoding:\t\t\t{:?}", self.e_encoding)?;
+        writeln!(f, "OS/ABI:\t\t\t\t{:?}", self.e_os_abi)?;
+        writeln!(f, "ABI Version:\t\t\t{}", self.e_os_abi_version)?;
+        writeln!(f, "Padding: \t\t\t{:x?}", self.e_padding_)?;
+        writeln!(f, "Type:\t\t\t\t{:?}", self.e_type)?;
+        writeln!(f, "Architecture:\t\t\t{:?}", self.e_machine)?;
+        writeln!(f, "Version:\t\t\t{:?}", self.e_version)?;
+        writeln!(f, "Entry point address:\t\t{:#x}", self.e_entry)?;
+        writeln!(f, "Program header offset:\t\t{}", self.e_phoff)?;
+        writeln!(f, "Section header offset:\t\t{}", self.e_shoff)?;
+        writeln!(f, "Flags:\t\t\t\t{}", self.e_flags)?;
+        writeln!(f, "Size of this header:\t\t{}", self.e_ehsize)?;
+        writeln!(f, "Size of program headers:\t{}", self.e_phentsize)?;
+        writeln!(f, "Number of program headers:\t{}", self.e_phnum)?;
+        writeln!(f, "Size of section headers:\t{}", self.e_shentsize)?;
+        writeln!(f, "Number of section headers:\t{}", self.e_shnum)?;
+        writeln!(f, "Section header strtab index:\t{}", self.e_shstrndx)
     }
 }
 
