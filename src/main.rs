@@ -358,9 +358,9 @@ struct ElfFileHeader {
     e_shstrndx: u16,
 }
 
+
 impl ElfFileHeader {
-    fn new(buffer: &Vec<u8>) -> ElfFileHeader {
-        let mut reader = Cursor::new(buffer);
+    fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
 
         // XXX: check magic
         let mut e_magic: [u8; 4] = [0; 4];
@@ -453,7 +453,171 @@ struct SectionHeader {
     // Section Alignment
     sh_addralign: u64,
     // Entry size if section holds the table
-    sh_entisize: u64,
+    sh_entsize: u64,
+}
+
+#[derive(Debug)]
+enum SegmentType {
+    // Program header table entry unused
+    Null,
+    // Loadable program segment
+    Load,
+    // Dynamic linking information
+    Dynamic,
+    // Program interpreter
+    Interp,
+    // Auxiliary information
+    Note,
+    // Reserved
+    ShLib,
+    // Entry for header table itself
+    ProgramHeader,
+    // Thread-local storage segment
+    ThreadLocalStorage,
+    // GCC .eh_frame_hdr segment
+    GnuEhFrame,
+    // Indicates stack executability
+    GnuStack,
+    // Read-only after relocation
+    GnuRelRo,
+    // Unknown
+    Unknown(u32),
+}
+
+impl SegmentType {
+    fn new(value: u32) -> SegmentType {
+
+        use SegmentType::*;
+
+        match value {
+            0 => Null,
+            1 => Load,
+            2 => Dynamic,
+            3 => Interp,
+            4 => Note,
+            5 => ShLib,
+            6 => ProgramHeader,
+            7 => ThreadLocalStorage,
+            0x6474e550 => GnuEhFrame,
+            0x6474e551 => GnuStack,
+            0x6474e552 => GnuRelRo,
+            _ => Unknown(value),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProgramHeader {
+    // Segment type
+    p_type: SegmentType,
+    // Segment flags
+    p_flags: u32,
+    // Segment file offset
+    p_offset: u64,
+    // Segment virtual address
+    p_vaddr: u64,
+    // Segment physical address
+    p_paddr: u64,
+    // Segment size in file
+    p_filesz: u64,
+    // Segment size in memory
+    p_memsiz: u64,
+    // Segment alignment
+    p_align: u64
+}
+
+impl ProgramHeader {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> ProgramHeader {
+        ProgramHeader {
+            p_type: SegmentType::new(reader.read_u32::<LittleEndian>().unwrap()),
+            p_flags: reader.read_u32::<LittleEndian>().unwrap(),
+            p_offset: reader.read_u64::<LittleEndian>().unwrap(),
+            p_vaddr: reader.read_u64::<LittleEndian>().unwrap(),
+            p_paddr: reader.read_u64::<LittleEndian>().unwrap(),
+            p_filesz: reader.read_u64::<LittleEndian>().unwrap(),
+            p_memsiz: reader.read_u64::<LittleEndian>().unwrap(),
+            p_align: reader.read_u64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl fmt::Display for ProgramHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NOTE: we have to use `format!` because Debug ignores padding
+        write!(f, "{:16}", format!("{:?}", self.p_type))?;
+        write!(f, "{:#016x} ", self.p_offset)?;
+        write!(f, "{:#016x} ", self.p_vaddr)?;
+        writeln!(f, "{:#016x} ", self.p_paddr)?;
+
+        write!(f, "{:16}{:#016x} ", "", self.p_filesz)?;
+        write!(f, "{:#016x} ", self.p_memsiz)?;
+
+        let pf_x = 1 << 0;
+        let pf_w = 1 << 1;
+        let pf_r = 1 << 2;
+
+        let x = if self.p_flags & pf_x == pf_x {
+            "X"
+        } else {
+            " "
+        };
+
+        let w = if self.p_flags & pf_w == pf_r {
+            "W"
+        } else {
+            " "
+        };
+
+        let r = if self.p_flags & pf_r == pf_r {
+            "R"
+        } else {
+            " "
+        };
+        write!(f, "{} {} {}   ", x, w, r);
+        writeln!(f, "{:#08x}", self.p_align)
+    }
+}
+
+#[derive(Debug)]
+struct ProgramHeaders {
+    headers: Vec<ProgramHeader>,
+}
+
+impl ProgramHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> ProgramHeaders {
+
+        reader.seek(std::io::SeekFrom::Start(header.e_phoff)).unwrap();
+
+        let mut headers: Vec<ProgramHeader> = vec![];
+        let mut section_no: u16 = 0;
+
+        while section_no < header.e_phnum {
+            headers.push(ProgramHeader::new(&mut reader));
+            section_no += 1;
+        }
+
+        ProgramHeaders {
+            headers
+        }
+    }
+}
+
+impl fmt::Display for ProgramHeaders {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Program Headers:")?;
+        writeln!(f, "{:16}{:16} {:16} {:16}",
+                 "Type", "Offset", "VirtAddr", "PhysAddr")?;
+        writeln!(f, "{:16}{:16} {:16} {:8}{:8}",
+                 "", "FileSiz", "MemSiz", "Flags", "Align")?;
+
+        let mut result: fmt::Result = Ok(());
+
+        for header in &self.headers {
+            result = header.fmt(f);
+        }
+
+        result
+    }
 }
 
 impl fmt::Display for ElfFileHeader {
@@ -500,7 +664,12 @@ fn main() {
 
     file.read_to_end(&mut buffer).unwrap();
 
-    let fh = ElfFileHeader::new(&mut buffer);
+    let mut reader = Cursor::new(buffer);
+
+    let fh = ElfFileHeader::new(&mut reader);
+    let ph = ProgramHeaders::new(&fh, &mut reader);
 
     println!("{}", fh);
+    println!("{}", ph);
+
 }
