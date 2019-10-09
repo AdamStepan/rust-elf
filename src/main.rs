@@ -542,12 +542,14 @@ impl SectionHeader {
 #[derive(Debug)]
 struct SectionHeaders {
     headers: Vec<SectionHeader>,
-    strtab: Option<Vec<String>>,
+    strtab: StringTable,
 }
+
+use std::collections::HashMap;
 
 #[derive(Debug)]
 struct StringTable {
-    data: Vec<String>
+    data: HashMap<u64, String>
 }
 
 use std::io::SeekFrom;
@@ -561,17 +563,19 @@ impl StringTable {
         let mut handle = reader.take(hdr.sh_size);
 
         let mut buffer: Vec<u8> = Vec::new();
-        let mut data: Vec<String> = Vec::new();
+
 
         handle.read_to_end(&mut buffer).unwrap();
 
         let mut curstr: String = String::from("");
 
-        for ch in buffer.iter() {
+        let mut data: HashMap<u64, String> = HashMap::new();
+
+        for (off, ch) in buffer.iter().enumerate() {
             if *ch != 0 {
                 curstr.push(*ch as char);
             } else {
-                data.push(curstr.clone());
+                data.insert(off as u64, curstr.clone());
                 curstr = String::from("");
             }
         }
@@ -588,8 +592,6 @@ impl SectionHeaders {
         reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
 
         let mut headers: Vec<SectionHeader> = vec![];
-        let strtab = None;
-
         let mut section_no: u16 = 0;
 
         while section_no < header.e_shnum {
@@ -597,15 +599,14 @@ impl SectionHeaders {
             section_no += 1;
         }
 
+        let strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
+
         SectionHeaders {
             headers,
             strtab
         }
     }
 
-    fn assign(&mut self, strtab: StringTable) {
-        self.strtab = Some(strtab.data);
-    }
 }
 
 #[derive(Debug)]
@@ -821,10 +822,8 @@ fn main() {
     let fh = ElfFileHeader::new(&mut reader);
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
-    let shstrtab = StringTable::new(&sh.headers[fh.e_shstrndx as usize], &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
-//    println!("{:?}", sh);
-//    println!("{:?}", shstrtab);
+    println!("{:?}", sh);
 }
