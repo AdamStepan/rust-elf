@@ -419,7 +419,7 @@ enum SectionHeaderType {
     // Section header table entry unused
     Null,
     // Program data
-    Progbits,
+    Data,
     // Symbol table
     Symtab,
     // String table
@@ -431,16 +431,82 @@ enum SectionHeaderType {
     // Dynamic linking information
     Dynamic,
     // Notes
+    Note,
+    // Program space with no data (bss)
+    Bss,
+    // Relocation entries, no adends
+    Rel,
+    // Dynamic linker symbol table
+    DynSym,
+    // Array of constructors
+    InitArray,
+    // Array of destructors
+    FiniArray,
+    // Array of pre-constructors
+    PreInitArray,
+    // Section group
+    Group,
+    // Extended section indeces
+    SymtabShndx,
+    // Object attributes
+    GnuAttributes,
+    // Gnu-style hash table
+    GnuHash,
+    // Prelink library list
+    GnuLibList,
+    // Checksum for DSO content
+    Checksum,
+    // Version definition section
+    GnuVerDef,
+    // Version needs section
+    GnuVerNeed,
+    // GVersion symbol table
+    GnuVerSym,
+    Unknown(u32),
 }
 
+impl SectionHeaderType {
+    fn new(value: u32) -> SectionHeaderType {
+        use SectionHeaderType::*;
+
+        match value {
+            0 => Null,
+            1 => Data,
+            2 => Symtab,
+            3 => Strtab,
+            4 => Rela,
+            5 => Hash,
+            6 => Dynamic,
+            7 => Note,
+            8 => Bss,
+            9 => Rel,
+            11 => DynSym,
+            14 => InitArray,
+            15 => FiniArray,
+            16 => PreInitArray,
+            17 => Group,
+            18 => SymtabShndx,
+            0x6ffffff5 => GnuAttributes,
+            0x6ffffff6 => GnuHash,
+            0x6ffffff7 => GnuLibList,
+            0x6ffffff8 => Checksum,
+            0x6ffffffd => GnuVerDef,
+            0x6ffffffe => GnuVerNeed,
+            0x6fffffff => GnuVerSym,
+            _ => Unknown(value),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct SectionHeader {
     // Section name (string tbl index)
     sh_name: u32,
     // Section type
-    sh_type: u32,
+    sh_type: SectionHeaderType,
     // Section flags
     sh_flags: u64,
-    // Sectuin virtual address at execution
+    // Section virtual address at execution
     sh_addr: u64,
     // Section file offset
     sh_offset: u64,
@@ -454,6 +520,92 @@ struct SectionHeader {
     sh_addralign: u64,
     // Entry size if section holds the table
     sh_entsize: u64,
+}
+
+impl SectionHeader {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> SectionHeader {
+        SectionHeader {
+            sh_name: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_type: SectionHeaderType::new(reader.read_u32::<LittleEndian>().unwrap()),
+            sh_flags: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_addr: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_offset: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_size: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_link: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_info: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_addralign: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_entsize: reader.read_u64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SectionHeaders {
+    headers: Vec<SectionHeader>,
+    strtab: Option<Vec<String>>,
+}
+
+#[derive(Debug)]
+struct StringTable {
+    data: Vec<String>
+}
+
+use std::io::SeekFrom;
+
+impl StringTable {
+    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
+
+        // XXX: check type of section header
+
+        reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
+        let mut handle = reader.take(hdr.sh_size);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut data: Vec<String> = Vec::new();
+
+        handle.read_to_end(&mut buffer).unwrap();
+
+        let mut curstr: String = String::from("");
+
+        for ch in buffer.iter() {
+            if *ch != 0 {
+                curstr.push(*ch as char);
+            } else {
+                data.push(curstr.clone());
+                curstr = String::from("");
+            }
+        }
+
+        StringTable {
+            data
+        }
+    }
+}
+
+impl SectionHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> SectionHeaders {
+
+        reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
+
+        let mut headers: Vec<SectionHeader> = vec![];
+        let strtab = None;
+
+        let mut section_no: u16 = 0;
+
+        while section_no < header.e_shnum {
+            headers.push(SectionHeader::new(&mut reader));
+            section_no += 1;
+        }
+
+        SectionHeaders {
+            headers,
+            strtab
+        }
+    }
+
+    fn assign(&mut self, strtab: StringTable) {
+        self.strtab = Some(strtab.data);
+    }
 }
 
 #[derive(Debug)]
@@ -573,7 +725,7 @@ impl fmt::Display for ProgramHeader {
         } else {
             " "
         };
-        write!(f, "{} {} {}   ", x, w, r);
+        write!(f, "{} {} {}   ", x, w, r)?;
         writeln!(f, "{:#08x}", self.p_align)
     }
 }
@@ -668,8 +820,11 @@ fn main() {
 
     let fh = ElfFileHeader::new(&mut reader);
     let ph = ProgramHeaders::new(&fh, &mut reader);
+    let sh = SectionHeaders::new(&fh, &mut reader);
+    let shstrtab = StringTable::new(&sh.headers[fh.e_shstrndx as usize], &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
-
+//    println!("{:?}", sh);
+//    println!("{:?}", shstrtab);
 }
