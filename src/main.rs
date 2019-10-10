@@ -1,7 +1,7 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fmt;
 use std::io::prelude::*;
-use std::io::Cursor;
+use std::io::{Cursor, SeekFrom};
 
 #[derive(Debug)]
 enum ObjectType {
@@ -545,43 +545,109 @@ struct SectionHeaders {
     strtab: StringTable,
 }
 
-use std::collections::HashMap;
+
+// XXX: use something like bitset
+fn sh_flags(value: u64) -> String {
+    let mut flags = String::from("");
+
+    let mut matchflag = |flag: u64, ch: char| {
+        if value & flag == flag {
+            flags.push(ch);
+        }
+    };
+
+    // Writable
+    matchflag(1 << 0, 'W');
+    // Occupies memory during execution
+    matchflag(1 << 1, 'A');
+    // Executable
+    matchflag(1 << 2, 'E');
+    // Might be merged
+    matchflag(1 << 4, 'M');
+    // Strings
+    matchflag(1 << 5, 'S');
+    // `sh_info' contains SHT index
+    matchflag(1 << 6, 'I');
+    // Preserve order after combining
+    matchflag(1 << 7, 'L');
+    // Non-standard OS specific handling
+    matchflag(1 << 8, 'O');
+    // Section is member of group
+    matchflag(1 << 9, 'G');
+    // Section hold thread-local data
+    matchflag(1 << 10, 'T');
+    // Section with compressed data
+    matchflag(1 << 11, 'C');
+
+    flags
+}
+
+impl fmt::Display for SectionHeaders {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Section headers:")?;
+        writeln!(f, "[No] {:<16} {:<16} {:<16} {:<8}",
+                 "Name", "Type", "Address", "Offset")?;
+        writeln!(f, "     {:<16} {:<16} {:<5} {} {}  {:<8}",
+                 "Size", "EntSize", "Flags", "Link", "Info", "Align")?;
+
+        for (i, header) in self.headers.iter().enumerate() {
+            let name = self.strtab.get(header.sh_name as u64);
+
+            writeln!(f, "[{:02}] {:16} {:<16} {:#016x} {:#08x}",
+                      i, name,
+                      format!("{:?}", header.sh_type),
+                      header.sh_addr, header.sh_offset)?;
+            writeln!(f, "     {:#016x} {:#016x} {:6} {:<3} {:<4}  {:<6}",
+                     header.sh_size, header.sh_entsize,
+                     sh_flags(header.sh_flags), header.sh_link,
+                     header.sh_info, header.sh_addralign)?;
+        }
+
+        return Ok(());
+    }
+}
 
 #[derive(Debug)]
 struct StringTable {
-    data: HashMap<u64, String>
+    // XXX: we cannot use map with offsets, because some sections
+    //      point to the middle of another string
+    buffer: Vec<u8>,
 }
 
-use std::io::SeekFrom;
 
 impl StringTable {
+
+    // XXX: use some kind of buffer for this
+    fn get(&self, offset: u64) -> String {
+
+        let sub = &self.buffer[offset as usize..];
+        let mut result = String::new();
+
+        for ch in sub.iter() {
+            if *ch != 0 {
+                result.push(*ch as char);
+            } else {
+                break
+            }
+        }
+
+        result
+    }
+
     fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
 
         // XXX: check type of section header
 
         reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
+
         let mut handle = reader.take(hdr.sh_size);
-
         let mut buffer: Vec<u8> = Vec::new();
-
 
         handle.read_to_end(&mut buffer).unwrap();
 
-        let mut curstr: String = String::from("");
-
-        let mut data: HashMap<u64, String> = HashMap::new();
-
-        for (off, ch) in buffer.iter().enumerate() {
-            if *ch != 0 {
-                curstr.push(*ch as char);
-            } else {
-                data.insert(off as u64, curstr.clone());
-                curstr = String::from("");
-            }
-        }
-
         StringTable {
-            data
+            buffer
         }
     }
 }
@@ -709,6 +775,7 @@ impl fmt::Display for ProgramHeader {
         let pf_w = 1 << 1;
         let pf_r = 1 << 2;
 
+        // XXX: use lambda for this
         let x = if self.p_flags & pf_x == pf_x {
             "X"
         } else {
@@ -825,5 +892,5 @@ fn main() {
 
     println!("{}", fh);
     println!("{}", ph);
-    println!("{:?}", sh);
+    println!("{}", sh);
 }
