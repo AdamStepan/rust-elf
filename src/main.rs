@@ -127,7 +127,6 @@ impl OsAbi {
 }
 
 fn show_machine(value: u16) -> &'static str {
-
     match value {
         0 => "No machine",
         1 => "AT&T WE 32100",
@@ -358,10 +357,8 @@ struct ElfFileHeader {
     e_shstrndx: u16,
 }
 
-
 impl ElfFileHeader {
     fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
-
         // XXX: check magic
         let mut e_magic: [u8; 4] = [0; 4];
         reader.read_exact(&mut e_magic).unwrap();
@@ -414,7 +411,7 @@ impl ElfFileHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SectionHeaderType {
     // Section header table entry unused
     Null,
@@ -545,7 +542,6 @@ struct SectionHeaders {
     strtab: StringTable,
 }
 
-
 // XXX: use something like bitset
 fn sh_flags(value: u64) -> String {
     let mut flags = String::from("");
@@ -583,25 +579,41 @@ fn sh_flags(value: u64) -> String {
 }
 
 impl fmt::Display for SectionHeaders {
-
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Section headers:")?;
-        writeln!(f, "[No] {:<16} {:<16} {:<16} {:<8}",
-                 "Name", "Type", "Address", "Offset")?;
-        writeln!(f, "     {:<16} {:<16} {:<5} {} {}  {:<8}",
-                 "Size", "EntSize", "Flags", "Link", "Info", "Align")?;
+        writeln!(
+            f,
+            "[No] {:<16} {:<16} {:<16} {:<8}",
+            "Name", "Type", "Address", "Offset"
+        )?;
+        writeln!(
+            f,
+            "     {:<16} {:<16} {:<5} {} {}  {:<8}",
+            "Size", "EntSize", "Flags", "Link", "Info", "Align"
+        )?;
 
         for (i, header) in self.headers.iter().enumerate() {
             let name = self.strtab.get(header.sh_name as u64);
 
-            writeln!(f, "[{:02}] {:16} {:<16} {:#016x} {:#08x}",
-                      i, name,
-                      format!("{:?}", header.sh_type),
-                      header.sh_addr, header.sh_offset)?;
-            writeln!(f, "     {:#016x} {:#016x} {:6} {:<3} {:<4}  {:<6}",
-                     header.sh_size, header.sh_entsize,
-                     sh_flags(header.sh_flags), header.sh_link,
-                     header.sh_info, header.sh_addralign)?;
+            writeln!(
+                f,
+                "[{:02}] {:16} {:<16} {:#016x} {:#08x}",
+                i,
+                name,
+                format!("{:?}", header.sh_type),
+                header.sh_addr,
+                header.sh_offset
+            )?;
+            writeln!(
+                f,
+                "     {:#016x} {:#016x} {:6} {:<3} {:<4}  {:<6}",
+                header.sh_size,
+                header.sh_entsize,
+                sh_flags(header.sh_flags),
+                header.sh_link,
+                header.sh_info,
+                header.sh_addralign
+            )?;
         }
 
         return Ok(());
@@ -615,12 +627,126 @@ struct StringTable {
     buffer: Vec<u8>,
 }
 
+#[derive(Debug)]
+struct Symbol {
+    // Symbol name (string tbl index)
+    st_name: u32,
+    // Symbol type and binding
+    // XXX: use st_bind and st_type
+    st_info: u8,
+    // Symbol visibility
+    st_other: u8,
+    // Section index
+    st_shndx: u16,
+    // Symbol value
+    st_value: u64,
+    // Symbol size
+    st_size: u64,
+}
+
+impl Symbol {
+    fn new(mut reader: &mut Cursor<Vec<u8>>) -> Symbol {
+        Symbol {
+            st_name: reader.read_u32::<LittleEndian>().unwrap(),
+            st_info: reader.read_u8().unwrap(),
+            st_other: reader.read_u8().unwrap(),
+            st_shndx: reader.read_u16::<LittleEndian>().unwrap(),
+            st_value: reader.read_u64::<LittleEndian>().unwrap(),
+            st_size: reader.read_u64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SymbolBind {
+    // Local symbol
+    Local,
+    // Global symbol
+    Global,
+    // Weak symbol
+    Weak,
+    // Unique Symbol
+    GnuUnique,
+    // Unknown
+    Unknown(u8),
+}
+
+impl SymbolBind {
+    fn new(info: u8) -> SymbolBind {
+        use SymbolBind::*;
+
+        match info >> 4 {
+            0 => Local,
+            1 => Global,
+            2 => Weak,
+            10 => GnuUnique,
+            _ => Unknown(info >> 4),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SymbolTable {
+    data: Vec<Symbol>,
+    strtab: StringTable,
+    name: String,
+}
+
+use std::mem;
+
+impl SymbolTable {
+    fn new(
+        headers: &SectionHeaders,
+        header: &SectionHeader,
+        mut reader: &mut Cursor<Vec<u8>>,
+    ) -> SymbolTable {
+        // XXX: check that header.sh_type is SHT_SYMTAB or SHT_DYNSYM
+        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
+
+        let mut data = vec![];
+        let mut i = 0;
+
+        // XXX: use some better method for checking the end
+        while i < header.sh_size {
+            i += mem::size_of::<Symbol>() as u64;
+            data.push(Symbol::new(&mut reader));
+        }
+
+        let strtab = &headers.headers[header.sh_link as usize];
+        let name = headers.strtab.get(header.sh_name as u64);
+
+        SymbolTable {
+            data: data,
+            name: name,
+            strtab: StringTable::new(&strtab, reader),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SymbolTables {
+    data: Vec<SymbolTable>,
+}
+
+impl SymbolTables {
+    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
+        let mut data: Vec<SymbolTable> = vec![];
+
+        for header in &headers.headers {
+            if header.sh_type == SectionHeaderType::DynSym
+                || header.sh_type == SectionHeaderType::Symtab
+            {
+                data.push(SymbolTable::new(headers, &header, reader));
+            }
+        }
+
+        SymbolTables { data }
+    }
+}
 
 impl StringTable {
-
     // XXX: use some kind of buffer for this
     fn get(&self, offset: u64) -> String {
-
         let sub = &self.buffer[offset as usize..];
         let mut result = String::new();
 
@@ -628,7 +754,7 @@ impl StringTable {
             if *ch != 0 {
                 result.push(*ch as char);
             } else {
-                break
+                break;
             }
         }
 
@@ -636,7 +762,6 @@ impl StringTable {
     }
 
     fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
-
         // XXX: check type of section header
 
         reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
@@ -646,15 +771,12 @@ impl StringTable {
 
         handle.read_to_end(&mut buffer).unwrap();
 
-        StringTable {
-            buffer
-        }
+        StringTable { buffer }
     }
 }
 
 impl SectionHeaders {
     fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> SectionHeaders {
-
         reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
 
         let mut headers: Vec<SectionHeader> = vec![];
@@ -667,12 +789,8 @@ impl SectionHeaders {
 
         let strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
 
-        SectionHeaders {
-            headers,
-            strtab
-        }
+        SectionHeaders { headers, strtab }
     }
-
 }
 
 #[derive(Debug)]
@@ -705,7 +823,6 @@ enum SegmentType {
 
 impl SegmentType {
     fn new(value: u32) -> SegmentType {
-
         use SegmentType::*;
 
         match value {
@@ -742,7 +859,7 @@ struct ProgramHeader {
     // Segment size in memory
     p_memsiz: u64,
     // Segment alignment
-    p_align: u64
+    p_align: u64,
 }
 
 impl ProgramHeader {
@@ -805,8 +922,9 @@ struct ProgramHeaders {
 
 impl ProgramHeaders {
     fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> ProgramHeaders {
-
-        reader.seek(std::io::SeekFrom::Start(header.e_phoff)).unwrap();
+        reader
+            .seek(std::io::SeekFrom::Start(header.e_phoff))
+            .unwrap();
 
         let mut headers: Vec<ProgramHeader> = vec![];
         let mut section_no: u16 = 0;
@@ -816,19 +934,23 @@ impl ProgramHeaders {
             section_no += 1;
         }
 
-        ProgramHeaders {
-            headers
-        }
+        ProgramHeaders { headers }
     }
 }
 
 impl fmt::Display for ProgramHeaders {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Program Headers:")?;
-        writeln!(f, "{:16}{:16} {:16} {:16}",
-                 "Type", "Offset", "VirtAddr", "PhysAddr")?;
-        writeln!(f, "{:16}{:16} {:16} {:8}{:8}",
-                 "", "FileSiz", "MemSiz", "Flags", "Align")?;
+        writeln!(
+            f,
+            "{:16}{:16} {:16} {:16}",
+            "Type", "Offset", "VirtAddr", "PhysAddr"
+        )?;
+        writeln!(
+            f,
+            "{:16}{:16} {:16} {:8}{:8}",
+            "", "FileSiz", "MemSiz", "Flags", "Align"
+        )?;
 
         let mut result: fmt::Result = Ok(());
 
@@ -889,8 +1011,10 @@ fn main() {
     let fh = ElfFileHeader::new(&mut reader);
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
+    let st = SymbolTables::new(&sh, &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
     println!("{}", sh);
+    println!("{:?}", st);
 }
