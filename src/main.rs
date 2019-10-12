@@ -1011,25 +1011,26 @@ impl fmt::Display for ProgramHeaders {
 impl fmt::Display for ElfFileHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Elf Header:")?;
-        writeln!(f, "Magic:\t\t\t\t{:x?}", self.e_magic)?;
-        writeln!(f, "Class:\t\t\t\t{:?}", self.e_class)?;
-        writeln!(f, "Encoding:\t\t\t{:?}", self.e_encoding)?;
-        writeln!(f, "OS/ABI:\t\t\t\t{:?}", self.e_os_abi)?;
-        writeln!(f, "ABI Version:\t\t\t{}", self.e_os_abi_version)?;
-        writeln!(f, "Padding: \t\t\t{:x?}", self.e_padding_)?;
-        writeln!(f, "Type:\t\t\t\t{:?}", self.e_type)?;
-        writeln!(f, "Architecture:\t\t\t{}", show_machine(self.e_machine))?;
-        writeln!(f, "Version:\t\t\t{:?}", self.e_version)?;
-        writeln!(f, "Entry point address:\t\t{:#x}", self.e_entry)?;
-        writeln!(f, "Program header offset:\t\t{}", self.e_phoff)?;
-        writeln!(f, "Section header offset:\t\t{}", self.e_shoff)?;
-        writeln!(f, "Flags:\t\t\t\t{}", self.e_flags)?;
-        writeln!(f, "Size of this header:\t\t{}", self.e_ehsize)?;
-        writeln!(f, "Size of program headers:\t{}", self.e_phentsize)?;
-        writeln!(f, "Number of program headers:\t{}", self.e_phnum)?;
-        writeln!(f, "Size of section headers:\t{}", self.e_shentsize)?;
-        writeln!(f, "Number of section headers:\t{}", self.e_shnum)?;
-        writeln!(f, "Section header strtab index:\t{}", self.e_shstrndx)
+
+        writeln!(f, "{:<32}{:x?}", "Magic:", self.e_magic)?;
+        writeln!(f, "{:<32}{:?}", "Class:", self.e_class)?;
+        writeln!(f, "{:<32}{:?}", "Encoding:", self.e_encoding)?;
+        writeln!(f, "{:<32}{:?}", "OS/ABI:", self.e_os_abi)?;
+        writeln!(f, "{:<32}{}", "ABI Version:", self.e_os_abi_version)?;
+        writeln!(f, "{:<32}{:x?}", "Padding:", self.e_padding_)?;
+        writeln!(f, "{:<32}{:?}", "Type:", self.e_type)?;
+        writeln!(f, "{:<32}{}", "Architecture:", show_machine(self.e_machine))?;
+        writeln!(f, "{:<32}{:?}", "Version:", self.e_version)?;
+        writeln!(f, "{:<32}{:#x}", "Entry point address:", self.e_entry)?;
+        writeln!(f, "{:<32}{}", "Program header offset:", self.e_phoff)?;
+        writeln!(f, "{:<32}{}", "Section header offset:", self.e_shoff)?;
+        writeln!(f, "{:<32}{}", "Flags:", self.e_flags)?;
+        writeln!(f, "{:<32}{}", "Size of this header:", self.e_ehsize)?;
+        writeln!(f, "{:<32}{}", "Size of program headers:", self.e_phentsize)?;
+        writeln!(f, "{:<32}{}", "Number of program headers:", self.e_phnum)?;
+        writeln!(f, "{:<32}{}", "Size of section headers:", self.e_shentsize)?;
+        writeln!(f, "{:<32}{}", "Number of section headers:", self.e_shnum)?;
+        writeln!(f, "{:<32}{}", "Section header strtab index:", self.e_shstrndx)
     }
 }
 
