@@ -636,7 +636,7 @@ struct Symbol {
     // Symbol binding
     st_bind: SymbolBinding,
     // Symbol visibility
-    st_other: u8,
+    st_vis: SymbolVisibility,
     // Section index
     st_shndx: u16,
     // Symbol value
@@ -645,9 +645,31 @@ struct Symbol {
     st_size: u64,
 }
 
+#[derive(Debug)]
+enum SymbolVisibility {
+    Default,
+    Internal,
+    Hidden,
+    Protected,
+}
+
+impl SymbolVisibility {
+    fn new(other: u8) -> SymbolVisibility {
+        use SymbolVisibility::*;
+
+        match other & 0x3 {
+            0 => Default,
+            1 => Internal,
+            2 => Hidden,
+            3 => Protected,
+            // NOTE: this is just because compiler complained
+            _ => Default,
+        }
+    }
+}
+
 impl Symbol {
     fn new(mut reader: &mut Cursor<Vec<u8>>) -> Symbol {
-
         let st_name = reader.read_u32::<LittleEndian>().unwrap();
 
         let st_info = reader.read_u8().unwrap();
@@ -655,6 +677,8 @@ impl Symbol {
         let st_bind = SymbolBinding::new(st_info);
 
         let st_other = reader.read_u8().unwrap();
+        let st_vis = SymbolVisibility::new(st_other);
+
         let st_shndx = reader.read_u16::<LittleEndian>().unwrap();
         let st_value = reader.read_u64::<LittleEndian>().unwrap();
         let st_size = reader.read_u64::<LittleEndian>().unwrap();
@@ -663,7 +687,7 @@ impl Symbol {
             st_name,
             st_type,
             st_bind,
-            st_other,
+            st_vis,
             st_shndx,
             st_value,
             st_size,
@@ -761,7 +785,7 @@ impl SymbolTable {
 
         // XXX: use some better method for checking the end
         while i < header.sh_size {
-            i += mem::size_of::<Symbol>() as u64;
+            i += header.sh_entsize;
             data.push(Symbol::new(&mut reader));
         }
 
@@ -776,9 +800,57 @@ impl SymbolTable {
     }
 }
 
+impl fmt::Display for SymbolTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "Symbol table `{}` contains {} entries:",
+            self.name,
+            self.data.len()
+        )?;
+        writeln!(
+            f,
+            "{:<6} {:<16} {:<8} {:<8} {:<6} {:<9} {:<3} {}",
+            "Num", "Value", "Size", "Type", "Bind", "Vis", "Ndx", "Name"
+        )?;
+
+        for (i, sym) in self.data.iter().enumerate() {
+            let name = self.strtab.get(sym.st_name as u64);
+            let typ = format!("{:?}", sym.st_type);
+            let bin = format!("{:?}", sym.st_bind);
+            let vis = format!("{:?}", sym.st_vis);
+
+            let ndx = if sym.st_shndx == 65521 {
+                String::from("Und")
+            } else {
+                format!("{:03}", sym.st_shndx)
+            };
+
+            writeln!(
+                f,
+                "{:<06} {:#016x} {:#08x} {:<8} {:<6} {:9} {:3} {}",
+                i, sym.st_value, sym.st_size, typ, bin, vis, ndx, name
+            )?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct SymbolTables {
     data: Vec<SymbolTable>,
+}
+
+impl fmt::Display for SymbolTables {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = Ok(());
+
+        for symtab in &self.data {
+            result = symtab.fmt(f);
+            writeln!(f, "")?;
+        }
+        result
+    }
 }
 
 impl SymbolTables {
@@ -1030,7 +1102,11 @@ impl fmt::Display for ElfFileHeader {
         writeln!(f, "{:<32}{}", "Number of program headers:", self.e_phnum)?;
         writeln!(f, "{:<32}{}", "Size of section headers:", self.e_shentsize)?;
         writeln!(f, "{:<32}{}", "Number of section headers:", self.e_shnum)?;
-        writeln!(f, "{:<32}{}", "Section header strtab index:", self.e_shstrndx)
+        writeln!(
+            f,
+            "{:<32}{}",
+            "Section header strtab index:", self.e_shstrndx
+        )
     }
 }
 
@@ -1063,5 +1139,5 @@ fn main() {
     println!("{}", fh);
     println!("{}", ph);
     println!("{}", sh);
-    println!("{:?}", st);
+    println!("{}", st);
 }
