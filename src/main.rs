@@ -888,29 +888,22 @@ impl fmt::Display for ProgramHeader {
         write!(f, "{:16}{:#016x} ", "", self.p_filesz)?;
         write!(f, "{:#016x} ", self.p_memsiz)?;
 
-        let pf_x = 1 << 0;
-        let pf_w = 1 << 1;
-        let pf_r = 1 << 2;
+        let mut flags = String::new();
 
-        // XXX: use lambda for this
-        let x = if self.p_flags & pf_x == pf_x {
-            "X"
-        } else {
-            " "
+        let mut matchflag = |flag: u32, ch: char| {
+            if self.p_flags & flag == flag {
+                flags.push(ch);
+            } else {
+                flags.push(' ');
+            }
+            flags.push(' ');
         };
 
-        let w = if self.p_flags & pf_w == pf_r {
-            "W"
-        } else {
-            " "
-        };
+        matchflag(1 << 0, 'X');
+        matchflag(1 << 1, 'W');
+        matchflag(1 << 2, 'R');
 
-        let r = if self.p_flags & pf_r == pf_r {
-            "R"
-        } else {
-            " "
-        };
-        write!(f, "{} {} {}   ", x, w, r)?;
+        write!(f, "{}  ", flags)?;
         writeln!(f, "{:#08x}", self.p_align)
     }
 }
