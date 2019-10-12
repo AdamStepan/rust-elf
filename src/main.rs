@@ -631,9 +631,10 @@ struct StringTable {
 struct Symbol {
     // Symbol name (string tbl index)
     st_name: u32,
-    // Symbol type and binding
-    // XXX: use st_bind and st_type
-    st_info: u8,
+    // Symbol type
+    st_type: SymbolType,
+    // Symbol binding
+    st_bind: SymbolBinding,
     // Symbol visibility
     st_other: u8,
     // Section index
@@ -646,19 +647,32 @@ struct Symbol {
 
 impl Symbol {
     fn new(mut reader: &mut Cursor<Vec<u8>>) -> Symbol {
+
+        let st_name = reader.read_u32::<LittleEndian>().unwrap();
+
+        let st_info = reader.read_u8().unwrap();
+        let st_type = SymbolType::new(st_info);
+        let st_bind = SymbolBinding::new(st_info);
+
+        let st_other = reader.read_u8().unwrap();
+        let st_shndx = reader.read_u16::<LittleEndian>().unwrap();
+        let st_value = reader.read_u64::<LittleEndian>().unwrap();
+        let st_size = reader.read_u64::<LittleEndian>().unwrap();
+
         Symbol {
-            st_name: reader.read_u32::<LittleEndian>().unwrap(),
-            st_info: reader.read_u8().unwrap(),
-            st_other: reader.read_u8().unwrap(),
-            st_shndx: reader.read_u16::<LittleEndian>().unwrap(),
-            st_value: reader.read_u64::<LittleEndian>().unwrap(),
-            st_size: reader.read_u64::<LittleEndian>().unwrap(),
+            st_name,
+            st_type,
+            st_bind,
+            st_other,
+            st_shndx,
+            st_value,
+            st_size,
         }
     }
 }
 
 #[derive(Debug)]
-enum SymbolBind {
+enum SymbolBinding {
     // Local symbol
     Local,
     // Global symbol
@@ -671,9 +685,48 @@ enum SymbolBind {
     Unknown(u8),
 }
 
-impl SymbolBind {
-    fn new(info: u8) -> SymbolBind {
-        use SymbolBind::*;
+#[derive(Debug)]
+enum SymbolType {
+    // SymboType is unspecified
+    NoType,
+    // Symbol is a data object
+    Object,
+    // Symbol is a code object
+    Func,
+    // Symbol associated with a section
+    Section,
+    // Symbol's name is file name
+    File,
+    // Symbol is a common data object
+    Common,
+    // Symbol is thread-local data object
+    Tls,
+    // Symbol is inderct code object
+    GnuIndFun,
+    Unknown(u8),
+}
+
+impl SymbolType {
+    fn new(info: u8) -> SymbolType {
+        use SymbolType::*;
+
+        match info & 0xf {
+            0 => NoType,
+            1 => Object,
+            2 => Func,
+            3 => Section,
+            4 => File,
+            5 => Common,
+            6 => Tls,
+            10 => GnuIndFun,
+            _ => Unknown(info & 0xf),
+        }
+    }
+}
+
+impl SymbolBinding {
+    fn new(info: u8) -> SymbolBinding {
+        use SymbolBinding::*;
 
         match info >> 4 {
             0 => Local,
