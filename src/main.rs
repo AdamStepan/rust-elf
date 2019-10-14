@@ -669,7 +669,7 @@ impl SymbolVisibility {
 }
 
 impl Symbol {
-    fn new(mut reader: &mut Cursor<Vec<u8>>) -> Symbol {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> Symbol {
         let st_name = reader.read_u32::<LittleEndian>().unwrap();
 
         let st_info = reader.read_u8().unwrap();
@@ -769,8 +769,6 @@ struct SymbolTable {
     name: String,
 }
 
-use std::mem;
-
 impl SymbolTable {
     fn new(
         headers: &SectionHeaders,
@@ -854,7 +852,7 @@ impl fmt::Display for SymbolTables {
 }
 
 impl SymbolTables {
-    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
+    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
         let mut data: Vec<SymbolTable> = vec![];
 
         for header in &headers.headers {
