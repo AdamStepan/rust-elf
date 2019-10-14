@@ -536,7 +536,13 @@ impl SectionHeaders {
             section_no += 1;
         }
 
-        let strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
+        let strtab: StringTable;
+
+        if header.e_shnum > 0 {
+            strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
+        } else {
+            strtab = StringTable::empty();
+        }
 
         SectionHeaders { headers, strtab }
     }
@@ -557,6 +563,10 @@ impl StringTable {
         }
 
         result
+    }
+
+    fn empty() -> StringTable {
+        StringTable { buffer: vec![] }
     }
 
     fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
@@ -778,6 +788,7 @@ impl fmt::Display for ElfFileHeader {
 
 impl fmt::Display for SectionHeaders {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
         writeln!(f, "Section headers:")?;
         writeln!(
             f,
