@@ -4,53 +4,403 @@ use std::io::prelude::*;
 use std::io::{Cursor, SeekFrom};
 
 #[derive(Debug)]
-enum ObjectType {
-    NoFileType,
-    RelocatableFile,
-    ExecutableFile,
-    SharedObjectFile,
-    CoreFile,
-    Invalid(u16), // XXX: omit ranges for now
-}
-
-impl ObjectType {
-    fn new(value: u16) -> ObjectType {
-        use ObjectType::*;
-
-        match value {
-            0 => NoFileType,
-            1 => RelocatableFile,
-            2 => ExecutableFile,
-            3 => SharedObjectFile,
-            4 => CoreFile,
-            _ => Invalid(value),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Version {
-    Unspecified,
-    Current,
-    Invalid(u32),
-}
-
-impl Version {
-    fn new(value: u32) -> Version {
-        match value {
-            0 => Version::Unspecified,
-            1 => Version::Current,
-            _ => Version::Invalid(value),
-        }
-    }
+struct ElfFileHeader {
+    // Conglomeration of the identification bytes, must be \177ELF
+    e_magic: [u8; 4],
+    // File class
+    e_class: FileClass,
+    // Data encoding
+    e_encoding: Encoding,
+    // File version, value must be EV_CURRENT
+    e_version_: u8,
+    // OS ABI identification
+    e_os_abi: OsAbi,
+    // ABI version
+    e_os_abi_version: u8,
+    // Padding bytes
+    e_padding_: [u8; 7],
+    // Object file type
+    e_type: ObjectType,
+    // Architecture
+    e_machine: u16,
+    // Object file version
+    e_version: Version,
+    // Entry point virtual address
+    e_entry: u64,
+    // Program header table file offset
+    e_phoff: u64,
+    // Section header table file offset
+    e_shoff: u64,
+    // Processor-specific flags
+    e_flags: u32,
+    // ELF header size in bytes
+    e_ehsize: u16,
+    // Program header table entry size
+    e_phentsize: u16,
+    // Program header table entry count
+    e_phnum: u16,
+    // Section header table entry size
+    e_shentsize: u16,
+    // Section header table entry count
+    e_shnum: u16,
+    // Section header string table index
+    e_shstrndx: u16,
 }
 
 #[derive(Debug)]
 enum FileClass {
+    // Invalid class
     None,
+    // 32-bit objects
     ElfClass32,
+    // 64 bit objects
     ElfClass64,
+    // Unknown class
     Invalid(u8),
+}
+
+#[derive(Debug)]
+enum Encoding {
+    // Invalid data encoding
+    None,
+    // 2's complement, little endian
+    LittleEndian,
+    // 2's complement big endian
+    BigEndian,
+    // Uknown data encoding
+    Invalid(u8),
+}
+
+#[derive(Debug)]
+enum OsAbi {
+    // UNIX System V ABI
+    UnixVSystem,
+    // HP-UX
+    HpUx,
+    // NetBDS
+    NetBsd,
+    // Object uses GNU ELF extensions
+    GnuElfExtensions,
+    // SUN Solaris
+    SunSolaris,
+    // IBM AIX
+    IbmAix,
+    // SGI Irix
+    SgiIrix,
+    // FreeBSD
+    FreeBsd,
+    // Compaq TRU64 UNIX
+    CompaqTru64Unix,
+    // Novell Modesto
+    NovellModesto,
+    // OpenBSD
+    OpenBsd,
+    // ARM EABI
+    ArmEabi,
+    // ARM
+    Arm,
+    // Standalone (embedded) application
+    Standalone,
+    // Unknown
+    Invalid(u8),
+}
+
+#[derive(Debug)]
+enum ObjectType {
+    // No file type
+    NoFileType,
+    // Reolcatable file
+    RelocatableFile,
+    // Executable file
+    ExecutableFile,
+    // Shared object file
+    SharedObjectFile,
+    // Core file
+    CoreFile,
+    // Unknown
+    Invalid(u16),
+}
+
+#[derive(Debug)]
+enum Version {
+    // Invalid ELF version
+    Unspecified,
+    // Current version
+    Current,
+    // Unknown
+    Invalid(u32),
+}
+
+#[derive(Debug)]
+struct SectionHeader {
+    // Section name (string tbl index)
+    sh_name: u32,
+    // Section type
+    sh_type: SectionHeaderType,
+    // Section flags
+    sh_flags: u64,
+    // Section virtual address at execution
+    sh_addr: u64,
+    // Section file offset
+    sh_offset: u64,
+    // Section size in bytes
+    sh_size: u64,
+    // Link to another section
+    sh_link: u32,
+    // Additional section information
+    sh_info: u32,
+    // Section Alignment
+    sh_addralign: u64,
+    // Entry size if section holds the table
+    sh_entsize: u64,
+}
+
+#[derive(Debug, PartialEq)]
+enum SectionHeaderType {
+    // Section header table entry unused
+    Null,
+    // Program data
+    Data,
+    // Symbol table
+    Symtab,
+    // String table
+    Strtab,
+    // Relocation entries with addends
+    Rela,
+    // Symbol hash table
+    Hash,
+    // Dynamic linking information
+    Dynamic,
+    // Notes
+    Note,
+    // Program space with no data (bss)
+    Bss,
+    // Relocation entries, no adends
+    Rel,
+    // Dynamic linker symbol table
+    DynSym,
+    // Array of constructors
+    InitArray,
+    // Array of destructors
+    FiniArray,
+    // Array of pre-constructors
+    PreInitArray,
+    // Section group
+    Group,
+    // Extended section indeces
+    SymtabShndx,
+    // Object attributes
+    GnuAttributes,
+    // Gnu-style hash table
+    GnuHash,
+    // Prelink library list
+    GnuLibList,
+    // Checksum for DSO content
+    Checksum,
+    // Version definition section
+    GnuVerDef,
+    // Version needs section
+    GnuVerNeed,
+    // Version symbol table
+    GnuVerSym,
+    Unknown(u32),
+}
+
+#[derive(Debug)]
+struct SectionHeaders {
+    headers: Vec<SectionHeader>,
+    strtab: StringTable,
+}
+
+#[derive(Debug)]
+struct StringTable {
+    // XXX: we cannot use map with offsets, because some sections
+    //      point to the middle of another string
+    buffer: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ProgramHeader {
+    // Segment type
+    p_type: SegmentType,
+    // Segment flags
+    p_flags: u32,
+    // Segment file offset
+    p_offset: u64,
+    // Segment virtual address
+    p_vaddr: u64,
+    // Segment physical address
+    p_paddr: u64,
+    // Segment size in file
+    p_filesz: u64,
+    // Segment size in memory
+    p_memsiz: u64,
+    // Segment alignment
+    p_align: u64,
+}
+
+#[derive(Debug)]
+enum SegmentType {
+    // Program header table entry unused
+    Null,
+    // Loadable program segment
+    Load,
+    // Dynamic linking information
+    Dynamic,
+    // Program interpreter
+    Interp,
+    // Auxiliary information
+    Note,
+    // Reserved
+    ShLib,
+    // Entry for header table itself
+    ProgramHeader,
+    // Thread-local storage segment
+    ThreadLocalStorage,
+    // GCC .eh_frame_hdr segment
+    GnuEhFrame,
+    // Indicates stack executability
+    GnuStack,
+    // Read-only after relocation
+    GnuRelRo,
+    // Unknown
+    Unknown(u32),
+}
+
+#[derive(Debug)]
+struct ProgramHeaders {
+    headers: Vec<ProgramHeader>,
+}
+
+#[derive(Debug)]
+struct Symbol {
+    // Symbol name (string tbl index)
+    st_name: u32,
+    // Symbol type
+    st_type: SymbolType,
+    // Symbol binding
+    st_bind: SymbolBinding,
+    // Symbol visibility
+    st_vis: SymbolVisibility,
+    // Section index
+    st_shndx: u16,
+    // Symbol value
+    st_value: u64,
+    // Symbol size
+    st_size: u64,
+}
+
+#[derive(Debug)]
+enum SymbolType {
+    // SymboType is unspecified
+    NoType,
+    // Symbol is a data object
+    Object,
+    // Symbol is a code object
+    Func,
+    // Symbol associated with a section
+    Section,
+    // Symbol's name is file name
+    File,
+    // Symbol is a common data object
+    Common,
+    // Symbol is thread-local data object
+    Tls,
+    // Symbol is indirect code object
+    GnuIndFun,
+    Unknown(u8),
+}
+
+#[derive(Debug)]
+enum SymbolBinding {
+    // Local symbol
+    Local,
+    // Global symbol
+    Global,
+    // Weak symbol
+    Weak,
+    // Unique Symbol
+    GnuUnique,
+    // Unknown
+    Unknown(u8),
+}
+
+#[derive(Debug)]
+enum SymbolVisibility {
+    // Default symbol visibility rules
+    Default,
+    // Processor specific hidden class
+    Internal,
+    // Sym unavailable in other modules
+    Hidden,
+    // Not preemptible, not exported
+    Protected,
+}
+
+#[derive(Debug)]
+struct SymbolTable {
+    data: Vec<Symbol>,
+    strtab: StringTable,
+    name: String,
+}
+
+#[derive(Debug)]
+struct SymbolTables {
+    data: Vec<SymbolTable>,
+}
+
+impl ElfFileHeader {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
+        // XXX: check magic
+        let mut e_magic: [u8; 4] = [0; 4];
+        reader.read_exact(&mut e_magic).unwrap();
+
+        let e_class = FileClass::new(reader.read_u8().unwrap());
+        let e_encoding = Encoding::new(reader.read_u8().unwrap());
+        let e_version_ = reader.read_u8().unwrap();
+        let e_os_abi = OsAbi::new(reader.read_u8().unwrap());
+        let e_os_abi_version = reader.read_u8().unwrap();
+
+        let mut e_padding_: [u8; 7] = [0; 7];
+        reader.read_exact(&mut e_padding_).unwrap();
+
+        let e_type = ObjectType::new(reader.read_u16::<LittleEndian>().unwrap());
+        let e_machine = reader.read_u16::<LittleEndian>().unwrap();
+        let e_version = Version::new(reader.read_u32::<LittleEndian>().unwrap());
+        let e_entry = reader.read_u64::<LittleEndian>().unwrap();
+        let e_phoff = reader.read_u64::<LittleEndian>().unwrap();
+        let e_shoff = reader.read_u64::<LittleEndian>().unwrap();
+        let e_flags = reader.read_u32::<LittleEndian>().unwrap();
+        let e_ehsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_phentsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_phnum = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shentsize = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shnum = reader.read_u16::<LittleEndian>().unwrap();
+        let e_shstrndx = reader.read_u16::<LittleEndian>().unwrap();
+
+        ElfFileHeader {
+            e_magic,
+            e_class,
+            e_encoding,
+            e_version_,
+            e_os_abi,
+            e_os_abi_version,
+            e_padding_,
+            e_type,
+            e_machine,
+            e_version,
+            e_entry,
+            e_phoff,
+            e_shoff,
+            e_flags,
+            e_ehsize,
+            e_phentsize,
+            e_phnum,
+            e_shentsize,
+            e_shnum,
+            e_shstrndx,
+        }
+    }
 }
 
 impl FileClass {
@@ -64,14 +414,6 @@ impl FileClass {
     }
 }
 
-#[derive(Debug)]
-enum Encoding {
-    None,
-    LittleEndian,
-    BigEndian,
-    Invalid(u8),
-}
-
 impl Encoding {
     fn new(value: u8) -> Encoding {
         match value {
@@ -81,25 +423,6 @@ impl Encoding {
             _ => Encoding::Invalid(value),
         }
     }
-}
-
-#[derive(Debug)]
-enum OsAbi {
-    UnixVSystem,
-    HpUx,
-    NetBsd,
-    GnuElfExtensions,
-    SunSolaris,
-    IbmAix,
-    SgiIrix,
-    FreeBsd,
-    CompaqTru64Unix,
-    NovellModesto,
-    OpenBsd,
-    ArmEabi,
-    Arm,
-    Standalone,
-    Invalid(u8),
 }
 
 impl OsAbi {
@@ -123,6 +446,478 @@ impl OsAbi {
             255 => Standalone,
             _ => OsAbi::Invalid(value),
         }
+    }
+}
+
+impl ObjectType {
+    fn new(value: u16) -> ObjectType {
+        use ObjectType::*;
+
+        match value {
+            0 => NoFileType,
+            1 => RelocatableFile,
+            2 => ExecutableFile,
+            3 => SharedObjectFile,
+            4 => CoreFile,
+            _ => Invalid(value),
+        }
+    }
+}
+
+impl Version {
+    fn new(value: u32) -> Version {
+        match value {
+            0 => Version::Unspecified,
+            1 => Version::Current,
+            _ => Version::Invalid(value),
+        }
+    }
+}
+
+impl SectionHeader {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> SectionHeader {
+        SectionHeader {
+            sh_name: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_type: SectionHeaderType::new(reader.read_u32::<LittleEndian>().unwrap()),
+            sh_flags: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_addr: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_offset: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_size: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_link: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_info: reader.read_u32::<LittleEndian>().unwrap(),
+            sh_addralign: reader.read_u64::<LittleEndian>().unwrap(),
+            sh_entsize: reader.read_u64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl SectionHeaderType {
+    fn new(value: u32) -> SectionHeaderType {
+        use SectionHeaderType::*;
+
+        match value {
+            0 => Null,
+            1 => Data,
+            2 => Symtab,
+            3 => Strtab,
+            4 => Rela,
+            5 => Hash,
+            6 => Dynamic,
+            7 => Note,
+            8 => Bss,
+            9 => Rel,
+            11 => DynSym,
+            14 => InitArray,
+            15 => FiniArray,
+            16 => PreInitArray,
+            17 => Group,
+            18 => SymtabShndx,
+            0x6ffffff5 => GnuAttributes,
+            0x6ffffff6 => GnuHash,
+            0x6ffffff7 => GnuLibList,
+            0x6ffffff8 => Checksum,
+            0x6ffffffd => GnuVerDef,
+            0x6ffffffe => GnuVerNeed,
+            0x6fffffff => GnuVerSym,
+            _ => Unknown(value),
+        }
+    }
+}
+
+impl SectionHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> SectionHeaders {
+        reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
+
+        let mut headers: Vec<SectionHeader> = vec![];
+        let mut section_no: u16 = 0;
+
+        while section_no < header.e_shnum {
+            headers.push(SectionHeader::new(&mut reader));
+            section_no += 1;
+        }
+
+        let strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
+
+        SectionHeaders { headers, strtab }
+    }
+}
+
+impl StringTable {
+    // XXX: use some kind of buffer for this
+    fn get(&self, offset: u64) -> String {
+        let sub = &self.buffer[offset as usize..];
+        let mut result = String::new();
+
+        for ch in sub.iter() {
+            if *ch != 0 {
+                result.push(*ch as char);
+            } else {
+                break;
+            }
+        }
+
+        result
+    }
+
+    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
+        // XXX: check type of section header
+
+        reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
+
+        let mut handle = reader.take(hdr.sh_size);
+        let mut buffer: Vec<u8> = Vec::new();
+
+        handle.read_to_end(&mut buffer).unwrap();
+
+        StringTable { buffer }
+    }
+}
+
+impl ProgramHeader {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> ProgramHeader {
+        ProgramHeader {
+            p_type: SegmentType::new(reader.read_u32::<LittleEndian>().unwrap()),
+            p_flags: reader.read_u32::<LittleEndian>().unwrap(),
+            p_offset: reader.read_u64::<LittleEndian>().unwrap(),
+            p_vaddr: reader.read_u64::<LittleEndian>().unwrap(),
+            p_paddr: reader.read_u64::<LittleEndian>().unwrap(),
+            p_filesz: reader.read_u64::<LittleEndian>().unwrap(),
+            p_memsiz: reader.read_u64::<LittleEndian>().unwrap(),
+            p_align: reader.read_u64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl SegmentType {
+    fn new(value: u32) -> SegmentType {
+        use SegmentType::*;
+
+        match value {
+            0 => Null,
+            1 => Load,
+            2 => Dynamic,
+            3 => Interp,
+            4 => Note,
+            5 => ShLib,
+            6 => ProgramHeader,
+            7 => ThreadLocalStorage,
+            0x6474e550 => GnuEhFrame,
+            0x6474e551 => GnuStack,
+            0x6474e552 => GnuRelRo,
+            _ => Unknown(value),
+        }
+    }
+}
+
+impl ProgramHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> ProgramHeaders {
+        reader
+            .seek(std::io::SeekFrom::Start(header.e_phoff))
+            .unwrap();
+
+        let mut headers: Vec<ProgramHeader> = vec![];
+        let mut section_no: u16 = 0;
+
+        while section_no < header.e_phnum {
+            headers.push(ProgramHeader::new(&mut reader));
+            section_no += 1;
+        }
+
+        ProgramHeaders { headers }
+    }
+}
+
+impl Symbol {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> Symbol {
+        let st_name = reader.read_u32::<LittleEndian>().unwrap();
+
+        let st_info = reader.read_u8().unwrap();
+        let st_type = SymbolType::new(st_info);
+        let st_bind = SymbolBinding::new(st_info);
+
+        let st_other = reader.read_u8().unwrap();
+        let st_vis = SymbolVisibility::new(st_other);
+
+        let st_shndx = reader.read_u16::<LittleEndian>().unwrap();
+        let st_value = reader.read_u64::<LittleEndian>().unwrap();
+        let st_size = reader.read_u64::<LittleEndian>().unwrap();
+
+        Symbol {
+            st_name,
+            st_type,
+            st_bind,
+            st_vis,
+            st_shndx,
+            st_value,
+            st_size,
+        }
+    }
+}
+
+impl SymbolType {
+    fn new(info: u8) -> SymbolType {
+        use SymbolType::*;
+
+        match info & 0xf {
+            0 => NoType,
+            1 => Object,
+            2 => Func,
+            3 => Section,
+            4 => File,
+            5 => Common,
+            6 => Tls,
+            10 => GnuIndFun,
+            _ => Unknown(info & 0xf),
+        }
+    }
+}
+
+impl SymbolBinding {
+    fn new(info: u8) -> SymbolBinding {
+        use SymbolBinding::*;
+
+        match info >> 4 {
+            0 => Local,
+            1 => Global,
+            2 => Weak,
+            10 => GnuUnique,
+            _ => Unknown(info >> 4),
+        }
+    }
+}
+
+impl SymbolVisibility {
+    fn new(other: u8) -> SymbolVisibility {
+        use SymbolVisibility::*;
+
+        match other & 0x3 {
+            0 => Default,
+            1 => Internal,
+            2 => Hidden,
+            3 => Protected,
+            // NOTE: this is just because compiler complained
+            _ => Default,
+        }
+    }
+}
+
+impl SymbolTable {
+    fn new(
+        headers: &SectionHeaders,
+        header: &SectionHeader,
+        mut reader: &mut Cursor<Vec<u8>>,
+    ) -> SymbolTable {
+        // XXX: check that header.sh_type is SHT_SYMTAB or SHT_DYNSYM
+        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
+
+        let mut data = vec![];
+        let mut i = 0;
+
+        // XXX: use some better method for checking the end
+        while i < header.sh_size {
+            i += header.sh_entsize;
+            data.push(Symbol::new(&mut reader));
+        }
+
+        let strtab = &headers.headers[header.sh_link as usize];
+        let name = headers.strtab.get(header.sh_name as u64);
+
+        SymbolTable {
+            data: data,
+            name: name,
+            strtab: StringTable::new(&strtab, reader),
+        }
+    }
+}
+
+impl SymbolTables {
+    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
+        let mut data: Vec<SymbolTable> = vec![];
+
+        for header in &headers.headers {
+            if header.sh_type == SectionHeaderType::DynSym
+                || header.sh_type == SectionHeaderType::Symtab
+            {
+                data.push(SymbolTable::new(headers, &header, reader));
+            }
+        }
+
+        SymbolTables { data }
+    }
+}
+
+impl fmt::Display for ElfFileHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Elf Header:")?;
+
+        writeln!(f, "{:<32}{:x?}", "Magic:", self.e_magic)?;
+        writeln!(f, "{:<32}{:?}", "Class:", self.e_class)?;
+        writeln!(f, "{:<32}{:?}", "Encoding:", self.e_encoding)?;
+        writeln!(f, "{:<32}{:?}", "OS/ABI:", self.e_os_abi)?;
+        writeln!(f, "{:<32}{}", "ABI Version:", self.e_os_abi_version)?;
+        writeln!(f, "{:<32}{:x?}", "Padding:", self.e_padding_)?;
+        writeln!(f, "{:<32}{:?}", "Type:", self.e_type)?;
+        writeln!(f, "{:<32}{}", "Architecture:", show_machine(self.e_machine))?;
+        writeln!(f, "{:<32}{:?}", "Version:", self.e_version)?;
+        writeln!(f, "{:<32}{:#x}", "Entry point address:", self.e_entry)?;
+        writeln!(f, "{:<32}{}", "Program header offset:", self.e_phoff)?;
+        writeln!(f, "{:<32}{}", "Section header offset:", self.e_shoff)?;
+        writeln!(f, "{:<32}{}", "Flags:", self.e_flags)?;
+        writeln!(f, "{:<32}{}", "Size of this header:", self.e_ehsize)?;
+        writeln!(f, "{:<32}{}", "Size of program headers:", self.e_phentsize)?;
+        writeln!(f, "{:<32}{}", "Number of program headers:", self.e_phnum)?;
+        writeln!(f, "{:<32}{}", "Size of section headers:", self.e_shentsize)?;
+        writeln!(f, "{:<32}{}", "Number of section headers:", self.e_shnum)?;
+        writeln!(
+            f,
+            "{:<32}{}",
+            "Section header strtab index:", self.e_shstrndx
+        )
+    }
+}
+
+impl fmt::Display for SectionHeaders {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Section headers:")?;
+        writeln!(
+            f,
+            "[No] {:<16} {:<16} {:<16} {:<8}",
+            "Name", "Type", "Address", "Offset"
+        )?;
+        writeln!(
+            f,
+            "     {:<16} {:<16} {:<5} {} {}  {:<8}",
+            "Size", "EntSize", "Flags", "Link", "Info", "Align"
+        )?;
+
+        for (i, header) in self.headers.iter().enumerate() {
+            let name = self.strtab.get(header.sh_name as u64);
+
+            writeln!(
+                f,
+                "[{:02}] {:16} {:<16} {:#016x} {:#08x}",
+                i,
+                name,
+                format!("{:?}", header.sh_type),
+                header.sh_addr,
+                header.sh_offset
+            )?;
+            writeln!(
+                f,
+                "     {:#016x} {:#016x} {:6} {:<3} {:<4}  {:<6}",
+                header.sh_size,
+                header.sh_entsize,
+                sh_flags(header.sh_flags),
+                header.sh_link,
+                header.sh_info,
+                header.sh_addralign
+            )?;
+        }
+
+        return Ok(());
+    }
+}
+
+impl fmt::Display for ProgramHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NOTE: we have to use `format!` because Debug ignores padding
+        write!(f, "{:16}", format!("{:?}", self.p_type))?;
+        write!(f, "{:#016x} ", self.p_offset)?;
+        write!(f, "{:#016x} ", self.p_vaddr)?;
+        writeln!(f, "{:#016x} ", self.p_paddr)?;
+
+        write!(f, "{:16}{:#016x} ", "", self.p_filesz)?;
+        write!(f, "{:#016x} ", self.p_memsiz)?;
+
+        let mut flags = String::new();
+
+        let mut matchflag = |flag: u32, ch: char| {
+            if self.p_flags & flag == flag {
+                flags.push(ch);
+            } else {
+                flags.push(' ');
+            }
+            flags.push(' ');
+        };
+
+        matchflag(1 << 0, 'X');
+        matchflag(1 << 1, 'W');
+        matchflag(1 << 2, 'R');
+
+        write!(f, "{}  ", flags)?;
+        writeln!(f, "{:#08x}", self.p_align)
+    }
+}
+
+impl fmt::Display for ProgramHeaders {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Program Headers:")?;
+        writeln!(
+            f,
+            "{:16}{:16} {:16} {:16}",
+            "Type", "Offset", "VirtAddr", "PhysAddr"
+        )?;
+        writeln!(
+            f,
+            "{:16}{:16} {:16} {:8}{:8}",
+            "", "FileSiz", "MemSiz", "Flags", "Align"
+        )?;
+
+        let mut result: fmt::Result = Ok(());
+
+        for header in &self.headers {
+            result = header.fmt(f);
+        }
+
+        result
+    }
+}
+
+impl fmt::Display for SymbolTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "Symbol table `{}` contains {} entries:",
+            self.name,
+            self.data.len()
+        )?;
+        writeln!(
+            f,
+            "{:<6} {:<16} {:<8} {:<8} {:<6} {:<9} {:<3} {}",
+            "Num", "Value", "Size", "Type", "Bind", "Vis", "Ndx", "Name"
+        )?;
+
+        for (i, sym) in self.data.iter().enumerate() {
+            let name = self.strtab.get(sym.st_name as u64);
+            let typ = format!("{:?}", sym.st_type);
+            let bin = format!("{:?}", sym.st_bind);
+            let vis = format!("{:?}", sym.st_vis);
+
+            let ndx = if sym.st_shndx == 65521 {
+                String::from("Und")
+            } else {
+                format!("{:03}", sym.st_shndx)
+            };
+
+            writeln!(
+                f,
+                "{:<06} {:#016x} {:#08x} {:<8} {:<6} {:9} {:3} {}",
+                i, sym.st_value, sym.st_size, typ, bin, vis, ndx, name
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for SymbolTables {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = Ok(());
+
+        for symtab in &self.data {
+            result = symtab.fmt(f);
+            writeln!(f, "")?;
+        }
+        result
     }
 }
 
@@ -313,235 +1108,6 @@ fn show_machine(value: u16) -> &'static str {
     }
 }
 
-#[derive(Debug)]
-struct ElfFileHeader {
-    // Conglomeration of the identification bytes, must be \177ELF
-    e_magic: [u8; 4],
-    // File class
-    e_class: FileClass,
-    // Data encoding
-    e_encoding: Encoding,
-    // File version, value must be EV_CURRENT
-    e_version_: u8,
-    // OS ABI identification
-    e_os_abi: OsAbi,
-    // ABI version
-    e_os_abi_version: u8,
-    // Padding bytes
-    e_padding_: [u8; 7],
-    // Object file type
-    e_type: ObjectType,
-    // Architecture
-    e_machine: u16,
-    // Object file version
-    e_version: Version,
-    // Entry point virtual address
-    e_entry: u64,
-    // Program header table file offset
-    e_phoff: u64,
-    // Section header table file offset
-    e_shoff: u64,
-    // Processor-specific flags
-    e_flags: u32,
-    // ELF header size in bytes
-    e_ehsize: u16,
-    // Program header table entry size
-    e_phentsize: u16,
-    // Program header table entry count
-    e_phnum: u16,
-    // Section header table entry size
-    e_shentsize: u16,
-    // Section header table entry count
-    e_shnum: u16,
-    // Section header string table index
-    e_shstrndx: u16,
-}
-
-impl ElfFileHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
-        // XXX: check magic
-        let mut e_magic: [u8; 4] = [0; 4];
-        reader.read_exact(&mut e_magic).unwrap();
-
-        let e_class = FileClass::new(reader.read_u8().unwrap());
-        let e_encoding = Encoding::new(reader.read_u8().unwrap());
-        let e_version_ = reader.read_u8().unwrap();
-        let e_os_abi = OsAbi::new(reader.read_u8().unwrap());
-        let e_os_abi_version = reader.read_u8().unwrap();
-
-        let mut e_padding_: [u8; 7] = [0; 7];
-        reader.read_exact(&mut e_padding_).unwrap();
-
-        let e_type = ObjectType::new(reader.read_u16::<LittleEndian>().unwrap());
-        let e_machine = reader.read_u16::<LittleEndian>().unwrap();
-        let e_version = Version::new(reader.read_u32::<LittleEndian>().unwrap());
-        let e_entry = reader.read_u64::<LittleEndian>().unwrap();
-        let e_phoff = reader.read_u64::<LittleEndian>().unwrap();
-        let e_shoff = reader.read_u64::<LittleEndian>().unwrap();
-        let e_flags = reader.read_u32::<LittleEndian>().unwrap();
-        let e_ehsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_phentsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_phnum = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shentsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shnum = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shstrndx = reader.read_u16::<LittleEndian>().unwrap();
-
-        ElfFileHeader {
-            e_magic,
-            e_class,
-            e_encoding,
-            e_version_,
-            e_os_abi,
-            e_os_abi_version,
-            e_padding_,
-            e_type,
-            e_machine,
-            e_version,
-            e_entry,
-            e_phoff,
-            e_shoff,
-            e_flags,
-            e_ehsize,
-            e_phentsize,
-            e_phnum,
-            e_shentsize,
-            e_shnum,
-            e_shstrndx,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-enum SectionHeaderType {
-    // Section header table entry unused
-    Null,
-    // Program data
-    Data,
-    // Symbol table
-    Symtab,
-    // String table
-    Strtab,
-    // Relocation entries with addends
-    Rela,
-    // Symbol hash table
-    Hash,
-    // Dynamic linking information
-    Dynamic,
-    // Notes
-    Note,
-    // Program space with no data (bss)
-    Bss,
-    // Relocation entries, no adends
-    Rel,
-    // Dynamic linker symbol table
-    DynSym,
-    // Array of constructors
-    InitArray,
-    // Array of destructors
-    FiniArray,
-    // Array of pre-constructors
-    PreInitArray,
-    // Section group
-    Group,
-    // Extended section indeces
-    SymtabShndx,
-    // Object attributes
-    GnuAttributes,
-    // Gnu-style hash table
-    GnuHash,
-    // Prelink library list
-    GnuLibList,
-    // Checksum for DSO content
-    Checksum,
-    // Version definition section
-    GnuVerDef,
-    // Version needs section
-    GnuVerNeed,
-    // GVersion symbol table
-    GnuVerSym,
-    Unknown(u32),
-}
-
-impl SectionHeaderType {
-    fn new(value: u32) -> SectionHeaderType {
-        use SectionHeaderType::*;
-
-        match value {
-            0 => Null,
-            1 => Data,
-            2 => Symtab,
-            3 => Strtab,
-            4 => Rela,
-            5 => Hash,
-            6 => Dynamic,
-            7 => Note,
-            8 => Bss,
-            9 => Rel,
-            11 => DynSym,
-            14 => InitArray,
-            15 => FiniArray,
-            16 => PreInitArray,
-            17 => Group,
-            18 => SymtabShndx,
-            0x6ffffff5 => GnuAttributes,
-            0x6ffffff6 => GnuHash,
-            0x6ffffff7 => GnuLibList,
-            0x6ffffff8 => Checksum,
-            0x6ffffffd => GnuVerDef,
-            0x6ffffffe => GnuVerNeed,
-            0x6fffffff => GnuVerSym,
-            _ => Unknown(value),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SectionHeader {
-    // Section name (string tbl index)
-    sh_name: u32,
-    // Section type
-    sh_type: SectionHeaderType,
-    // Section flags
-    sh_flags: u64,
-    // Section virtual address at execution
-    sh_addr: u64,
-    // Section file offset
-    sh_offset: u64,
-    // Section size in bytes
-    sh_size: u64,
-    // Link to another section
-    sh_link: u32,
-    // Additional section information
-    sh_info: u32,
-    // Section Alignment
-    sh_addralign: u64,
-    // Entry size if section holds the table
-    sh_entsize: u64,
-}
-
-impl SectionHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> SectionHeader {
-        SectionHeader {
-            sh_name: reader.read_u32::<LittleEndian>().unwrap(),
-            sh_type: SectionHeaderType::new(reader.read_u32::<LittleEndian>().unwrap()),
-            sh_flags: reader.read_u64::<LittleEndian>().unwrap(),
-            sh_addr: reader.read_u64::<LittleEndian>().unwrap(),
-            sh_offset: reader.read_u64::<LittleEndian>().unwrap(),
-            sh_size: reader.read_u64::<LittleEndian>().unwrap(),
-            sh_link: reader.read_u32::<LittleEndian>().unwrap(),
-            sh_info: reader.read_u32::<LittleEndian>().unwrap(),
-            sh_addralign: reader.read_u64::<LittleEndian>().unwrap(),
-            sh_entsize: reader.read_u64::<LittleEndian>().unwrap(),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SectionHeaders {
-    headers: Vec<SectionHeader>,
-    strtab: StringTable,
-}
-
 // XXX: use something like bitset
 fn sh_flags(value: u64) -> String {
     let mut flags = String::from("");
@@ -576,536 +1142,6 @@ fn sh_flags(value: u64) -> String {
     matchflag(1 << 11, 'C');
 
     flags
-}
-
-impl fmt::Display for SectionHeaders {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Section headers:")?;
-        writeln!(
-            f,
-            "[No] {:<16} {:<16} {:<16} {:<8}",
-            "Name", "Type", "Address", "Offset"
-        )?;
-        writeln!(
-            f,
-            "     {:<16} {:<16} {:<5} {} {}  {:<8}",
-            "Size", "EntSize", "Flags", "Link", "Info", "Align"
-        )?;
-
-        for (i, header) in self.headers.iter().enumerate() {
-            let name = self.strtab.get(header.sh_name as u64);
-
-            writeln!(
-                f,
-                "[{:02}] {:16} {:<16} {:#016x} {:#08x}",
-                i,
-                name,
-                format!("{:?}", header.sh_type),
-                header.sh_addr,
-                header.sh_offset
-            )?;
-            writeln!(
-                f,
-                "     {:#016x} {:#016x} {:6} {:<3} {:<4}  {:<6}",
-                header.sh_size,
-                header.sh_entsize,
-                sh_flags(header.sh_flags),
-                header.sh_link,
-                header.sh_info,
-                header.sh_addralign
-            )?;
-        }
-
-        return Ok(());
-    }
-}
-
-#[derive(Debug)]
-struct StringTable {
-    // XXX: we cannot use map with offsets, because some sections
-    //      point to the middle of another string
-    buffer: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct Symbol {
-    // Symbol name (string tbl index)
-    st_name: u32,
-    // Symbol type
-    st_type: SymbolType,
-    // Symbol binding
-    st_bind: SymbolBinding,
-    // Symbol visibility
-    st_vis: SymbolVisibility,
-    // Section index
-    st_shndx: u16,
-    // Symbol value
-    st_value: u64,
-    // Symbol size
-    st_size: u64,
-}
-
-#[derive(Debug)]
-enum SymbolVisibility {
-    Default,
-    Internal,
-    Hidden,
-    Protected,
-}
-
-impl SymbolVisibility {
-    fn new(other: u8) -> SymbolVisibility {
-        use SymbolVisibility::*;
-
-        match other & 0x3 {
-            0 => Default,
-            1 => Internal,
-            2 => Hidden,
-            3 => Protected,
-            // NOTE: this is just because compiler complained
-            _ => Default,
-        }
-    }
-}
-
-impl Symbol {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> Symbol {
-        let st_name = reader.read_u32::<LittleEndian>().unwrap();
-
-        let st_info = reader.read_u8().unwrap();
-        let st_type = SymbolType::new(st_info);
-        let st_bind = SymbolBinding::new(st_info);
-
-        let st_other = reader.read_u8().unwrap();
-        let st_vis = SymbolVisibility::new(st_other);
-
-        let st_shndx = reader.read_u16::<LittleEndian>().unwrap();
-        let st_value = reader.read_u64::<LittleEndian>().unwrap();
-        let st_size = reader.read_u64::<LittleEndian>().unwrap();
-
-        Symbol {
-            st_name,
-            st_type,
-            st_bind,
-            st_vis,
-            st_shndx,
-            st_value,
-            st_size,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum SymbolBinding {
-    // Local symbol
-    Local,
-    // Global symbol
-    Global,
-    // Weak symbol
-    Weak,
-    // Unique Symbol
-    GnuUnique,
-    // Unknown
-    Unknown(u8),
-}
-
-#[derive(Debug)]
-enum SymbolType {
-    // SymboType is unspecified
-    NoType,
-    // Symbol is a data object
-    Object,
-    // Symbol is a code object
-    Func,
-    // Symbol associated with a section
-    Section,
-    // Symbol's name is file name
-    File,
-    // Symbol is a common data object
-    Common,
-    // Symbol is thread-local data object
-    Tls,
-    // Symbol is inderct code object
-    GnuIndFun,
-    Unknown(u8),
-}
-
-impl SymbolType {
-    fn new(info: u8) -> SymbolType {
-        use SymbolType::*;
-
-        match info & 0xf {
-            0 => NoType,
-            1 => Object,
-            2 => Func,
-            3 => Section,
-            4 => File,
-            5 => Common,
-            6 => Tls,
-            10 => GnuIndFun,
-            _ => Unknown(info & 0xf),
-        }
-    }
-}
-
-impl SymbolBinding {
-    fn new(info: u8) -> SymbolBinding {
-        use SymbolBinding::*;
-
-        match info >> 4 {
-            0 => Local,
-            1 => Global,
-            2 => Weak,
-            10 => GnuUnique,
-            _ => Unknown(info >> 4),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SymbolTable {
-    data: Vec<Symbol>,
-    strtab: StringTable,
-    name: String,
-}
-
-impl SymbolTable {
-    fn new(
-        headers: &SectionHeaders,
-        header: &SectionHeader,
-        mut reader: &mut Cursor<Vec<u8>>,
-    ) -> SymbolTable {
-        // XXX: check that header.sh_type is SHT_SYMTAB or SHT_DYNSYM
-        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
-
-        let mut data = vec![];
-        let mut i = 0;
-
-        // XXX: use some better method for checking the end
-        while i < header.sh_size {
-            i += header.sh_entsize;
-            data.push(Symbol::new(&mut reader));
-        }
-
-        let strtab = &headers.headers[header.sh_link as usize];
-        let name = headers.strtab.get(header.sh_name as u64);
-
-        SymbolTable {
-            data: data,
-            name: name,
-            strtab: StringTable::new(&strtab, reader),
-        }
-    }
-}
-
-impl fmt::Display for SymbolTable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "Symbol table `{}` contains {} entries:",
-            self.name,
-            self.data.len()
-        )?;
-        writeln!(
-            f,
-            "{:<6} {:<16} {:<8} {:<8} {:<6} {:<9} {:<3} {}",
-            "Num", "Value", "Size", "Type", "Bind", "Vis", "Ndx", "Name"
-        )?;
-
-        for (i, sym) in self.data.iter().enumerate() {
-            let name = self.strtab.get(sym.st_name as u64);
-            let typ = format!("{:?}", sym.st_type);
-            let bin = format!("{:?}", sym.st_bind);
-            let vis = format!("{:?}", sym.st_vis);
-
-            let ndx = if sym.st_shndx == 65521 {
-                String::from("Und")
-            } else {
-                format!("{:03}", sym.st_shndx)
-            };
-
-            writeln!(
-                f,
-                "{:<06} {:#016x} {:#08x} {:<8} {:<6} {:9} {:3} {}",
-                i, sym.st_value, sym.st_size, typ, bin, vis, ndx, name
-            )?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct SymbolTables {
-    data: Vec<SymbolTable>,
-}
-
-impl fmt::Display for SymbolTables {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut result = Ok(());
-
-        for symtab in &self.data {
-            result = symtab.fmt(f);
-            writeln!(f, "")?;
-        }
-        result
-    }
-}
-
-impl SymbolTables {
-    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
-        let mut data: Vec<SymbolTable> = vec![];
-
-        for header in &headers.headers {
-            if header.sh_type == SectionHeaderType::DynSym
-                || header.sh_type == SectionHeaderType::Symtab
-            {
-                data.push(SymbolTable::new(headers, &header, reader));
-            }
-        }
-
-        SymbolTables { data }
-    }
-}
-
-impl StringTable {
-    // XXX: use some kind of buffer for this
-    fn get(&self, offset: u64) -> String {
-        let sub = &self.buffer[offset as usize..];
-        let mut result = String::new();
-
-        for ch in sub.iter() {
-            if *ch != 0 {
-                result.push(*ch as char);
-            } else {
-                break;
-            }
-        }
-
-        result
-    }
-
-    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
-        // XXX: check type of section header
-
-        reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
-
-        let mut handle = reader.take(hdr.sh_size);
-        let mut buffer: Vec<u8> = Vec::new();
-
-        handle.read_to_end(&mut buffer).unwrap();
-
-        StringTable { buffer }
-    }
-}
-
-impl SectionHeaders {
-    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> SectionHeaders {
-        reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
-
-        let mut headers: Vec<SectionHeader> = vec![];
-        let mut section_no: u16 = 0;
-
-        while section_no < header.e_shnum {
-            headers.push(SectionHeader::new(&mut reader));
-            section_no += 1;
-        }
-
-        let strtab = StringTable::new(&headers[header.e_shstrndx as usize], &mut reader);
-
-        SectionHeaders { headers, strtab }
-    }
-}
-
-#[derive(Debug)]
-enum SegmentType {
-    // Program header table entry unused
-    Null,
-    // Loadable program segment
-    Load,
-    // Dynamic linking information
-    Dynamic,
-    // Program interpreter
-    Interp,
-    // Auxiliary information
-    Note,
-    // Reserved
-    ShLib,
-    // Entry for header table itself
-    ProgramHeader,
-    // Thread-local storage segment
-    ThreadLocalStorage,
-    // GCC .eh_frame_hdr segment
-    GnuEhFrame,
-    // Indicates stack executability
-    GnuStack,
-    // Read-only after relocation
-    GnuRelRo,
-    // Unknown
-    Unknown(u32),
-}
-
-impl SegmentType {
-    fn new(value: u32) -> SegmentType {
-        use SegmentType::*;
-
-        match value {
-            0 => Null,
-            1 => Load,
-            2 => Dynamic,
-            3 => Interp,
-            4 => Note,
-            5 => ShLib,
-            6 => ProgramHeader,
-            7 => ThreadLocalStorage,
-            0x6474e550 => GnuEhFrame,
-            0x6474e551 => GnuStack,
-            0x6474e552 => GnuRelRo,
-            _ => Unknown(value),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ProgramHeader {
-    // Segment type
-    p_type: SegmentType,
-    // Segment flags
-    p_flags: u32,
-    // Segment file offset
-    p_offset: u64,
-    // Segment virtual address
-    p_vaddr: u64,
-    // Segment physical address
-    p_paddr: u64,
-    // Segment size in file
-    p_filesz: u64,
-    // Segment size in memory
-    p_memsiz: u64,
-    // Segment alignment
-    p_align: u64,
-}
-
-impl ProgramHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> ProgramHeader {
-        ProgramHeader {
-            p_type: SegmentType::new(reader.read_u32::<LittleEndian>().unwrap()),
-            p_flags: reader.read_u32::<LittleEndian>().unwrap(),
-            p_offset: reader.read_u64::<LittleEndian>().unwrap(),
-            p_vaddr: reader.read_u64::<LittleEndian>().unwrap(),
-            p_paddr: reader.read_u64::<LittleEndian>().unwrap(),
-            p_filesz: reader.read_u64::<LittleEndian>().unwrap(),
-            p_memsiz: reader.read_u64::<LittleEndian>().unwrap(),
-            p_align: reader.read_u64::<LittleEndian>().unwrap(),
-        }
-    }
-}
-
-impl fmt::Display for ProgramHeader {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // NOTE: we have to use `format!` because Debug ignores padding
-        write!(f, "{:16}", format!("{:?}", self.p_type))?;
-        write!(f, "{:#016x} ", self.p_offset)?;
-        write!(f, "{:#016x} ", self.p_vaddr)?;
-        writeln!(f, "{:#016x} ", self.p_paddr)?;
-
-        write!(f, "{:16}{:#016x} ", "", self.p_filesz)?;
-        write!(f, "{:#016x} ", self.p_memsiz)?;
-
-        let mut flags = String::new();
-
-        let mut matchflag = |flag: u32, ch: char| {
-            if self.p_flags & flag == flag {
-                flags.push(ch);
-            } else {
-                flags.push(' ');
-            }
-            flags.push(' ');
-        };
-
-        matchflag(1 << 0, 'X');
-        matchflag(1 << 1, 'W');
-        matchflag(1 << 2, 'R');
-
-        write!(f, "{}  ", flags)?;
-        writeln!(f, "{:#08x}", self.p_align)
-    }
-}
-
-#[derive(Debug)]
-struct ProgramHeaders {
-    headers: Vec<ProgramHeader>,
-}
-
-impl ProgramHeaders {
-    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> ProgramHeaders {
-        reader
-            .seek(std::io::SeekFrom::Start(header.e_phoff))
-            .unwrap();
-
-        let mut headers: Vec<ProgramHeader> = vec![];
-        let mut section_no: u16 = 0;
-
-        while section_no < header.e_phnum {
-            headers.push(ProgramHeader::new(&mut reader));
-            section_no += 1;
-        }
-
-        ProgramHeaders { headers }
-    }
-}
-
-impl fmt::Display for ProgramHeaders {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Program Headers:")?;
-        writeln!(
-            f,
-            "{:16}{:16} {:16} {:16}",
-            "Type", "Offset", "VirtAddr", "PhysAddr"
-        )?;
-        writeln!(
-            f,
-            "{:16}{:16} {:16} {:8}{:8}",
-            "", "FileSiz", "MemSiz", "Flags", "Align"
-        )?;
-
-        let mut result: fmt::Result = Ok(());
-
-        for header in &self.headers {
-            result = header.fmt(f);
-        }
-
-        result
-    }
-}
-
-impl fmt::Display for ElfFileHeader {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Elf Header:")?;
-
-        writeln!(f, "{:<32}{:x?}", "Magic:", self.e_magic)?;
-        writeln!(f, "{:<32}{:?}", "Class:", self.e_class)?;
-        writeln!(f, "{:<32}{:?}", "Encoding:", self.e_encoding)?;
-        writeln!(f, "{:<32}{:?}", "OS/ABI:", self.e_os_abi)?;
-        writeln!(f, "{:<32}{}", "ABI Version:", self.e_os_abi_version)?;
-        writeln!(f, "{:<32}{:x?}", "Padding:", self.e_padding_)?;
-        writeln!(f, "{:<32}{:?}", "Type:", self.e_type)?;
-        writeln!(f, "{:<32}{}", "Architecture:", show_machine(self.e_machine))?;
-        writeln!(f, "{:<32}{:?}", "Version:", self.e_version)?;
-        writeln!(f, "{:<32}{:#x}", "Entry point address:", self.e_entry)?;
-        writeln!(f, "{:<32}{}", "Program header offset:", self.e_phoff)?;
-        writeln!(f, "{:<32}{}", "Section header offset:", self.e_shoff)?;
-        writeln!(f, "{:<32}{}", "Flags:", self.e_flags)?;
-        writeln!(f, "{:<32}{}", "Size of this header:", self.e_ehsize)?;
-        writeln!(f, "{:<32}{}", "Size of program headers:", self.e_phentsize)?;
-        writeln!(f, "{:<32}{}", "Number of program headers:", self.e_phnum)?;
-        writeln!(f, "{:<32}{}", "Size of section headers:", self.e_shentsize)?;
-        writeln!(f, "{:<32}{}", "Number of section headers:", self.e_shnum)?;
-        writeln!(
-            f,
-            "{:<32}{}",
-            "Section header strtab index:", self.e_shstrndx
-        )
-    }
 }
 
 fn main() {
