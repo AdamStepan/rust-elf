@@ -239,7 +239,7 @@ struct ProgramHeader {
     p_align: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SegmentType {
     // Program header table entry unused
     Null,
@@ -432,6 +432,11 @@ enum NoteOs {
     Solaris2,
     FreeBsd,
     Unknown(u8),
+}
+
+#[derive(Debug)]
+struct Interpret {
+    path: String,
 }
 
 impl ElfFileHeader {
@@ -967,6 +972,29 @@ impl NoteSections {
     }
 }
 
+impl Interpret {
+    fn new(headers: &ProgramHeaders, reader: &mut Cursor<Vec<u8>>) -> Interpret {
+        let mut path = String::from("");
+
+        for header in &headers.headers {
+            if header.p_type != SegmentType::Interp {
+                continue;
+            }
+
+            reader.seek(SeekFrom::Start(header.p_offset)).unwrap();
+
+            let mut data = vec![0; header.p_filesz as usize];
+            reader.read_exact(&mut data).unwrap();
+
+            path = String::from_utf8(data).unwrap();
+            break;
+
+        }
+
+        Interpret { path }
+    }
+}
+
 impl fmt::Display for NoteSection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Displaying notes found in: {}", self.name)?;
@@ -1427,10 +1455,12 @@ fn main() {
     let sh = SectionHeaders::new(&fh, &mut reader);
     let st = SymbolTables::new(&sh, &mut reader);
     let ns = NoteSections::new(&sh, &mut reader);
+    let ip = Interpret::new(&ph, &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
     println!("{}", sh);
     println!("{}", st);
     println!("{}", ns);
+    println!("{:?}", ip);
 }
