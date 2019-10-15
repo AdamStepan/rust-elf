@@ -439,6 +439,96 @@ struct Interpret {
     path: String,
 }
 
+#[derive(Debug)]
+struct DynamicEntry {
+    // For each object with this type, tag controls the interpretation
+    // of the value
+    tag: DynamicEntryTag,
+    value: u64
+}
+
+#[derive(Debug)]
+enum DynamicEntryTag {
+    // Marks end of dynamic section
+    Null,
+    // Offset into the string table recorded in Strtab entry
+    Needed,
+    // Size in bytes of PLT Relocs
+    PltRelocsSize,
+    // Processor defined value
+    PltGot,
+    // Address of symbol hash table
+    Hash,
+    // Address of string table
+    Strtab,
+    // Address of symbol table
+    Symtab,
+    // Address of Rela relocs
+    Rela,
+    // Total size of Rela reloc
+    RelaSize,
+    // Size of one Rela reloc
+    RelaEntSize,
+    // Size of string table
+    StrSize,
+    // Size of one symbol table entry
+    SymtabEntSize,
+    // Address of init functions
+    Init,
+    // Address of termination function
+    Fini,
+    // Name of shared object
+    SoName,
+    // Library search path (deprecated)
+    Rpath,
+    // Start symbol search here
+    Symbolic,
+    // Address of Rel relocs
+    Rel,
+    // Total size of Rel relocs
+    RelSize,
+    // Size of one Rel reloc
+    RelEntSize,
+    // Type of reloc in PLT
+    PltRel,
+    // For debugging; unspecified
+    Debug,
+    // Reloc might modify .text
+    TextRel,
+    // Address of PLT relocs
+    JmpRel,
+    // Process relocations of object
+    BindNow,
+    // Array with addresses of init fct
+    InitArray,
+    // Array with addresses of fini fct
+    FiniArray,
+    // Size in bytes of InitArray
+    InitiArraySize,
+    // Size in bytes of FiniArray
+    FiniArraySize,
+    // Library search path
+    RunPath,
+    // Flags for object being loaded
+    Flags,
+    // Start of encoded page
+    Encoding,
+    // Array of addresses of preinit fct
+    PreInitArray,
+    // Size in bytes of PreInitArray
+    PreInitArraySize,
+    // Address of SYMTAB_SHNDX section
+    SymtabSectionHeadeIndex
+}
+
+#[derive(Debug)]
+struct DynamicSection {
+    // This header is present if object file participates
+    // in dynamic linking
+    data: Vec<DynamicEntry>,
+    strtab: StringTable,
+}
+
 impl ElfFileHeader {
     fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
         // XXX: check magic
