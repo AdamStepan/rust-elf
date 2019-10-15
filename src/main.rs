@@ -1201,7 +1201,14 @@ impl fmt::Display for SymbolTables {
     }
 }
 
+impl fmt::Display for Interpret {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Interpret path: `{}'", self.path)
+    }
+}
+
 fn show_machine(value: u16) -> &'static str {
+
     match value {
         0 => "No machine",
         1 => "AT&T WE 32100",
@@ -1462,5 +1469,5 @@ fn main() {
     println!("{}", sh);
     println!("{}", st);
     println!("{}", ns);
-    println!("{:?}", ip);
+    println!("{}", ip);
 }
