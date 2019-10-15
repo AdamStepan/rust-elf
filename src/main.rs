@@ -447,7 +447,7 @@ struct DynamicEntry {
     value: u64
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum DynamicEntryTag {
     // Marks end of dynamic section
     Null,
@@ -470,7 +470,7 @@ enum DynamicEntryTag {
     // Size of one Rela reloc
     RelaEntSize,
     // Size of string table
-    StrSize,
+    StrtabSize,
     // Size of one symbol table entry
     SymtabEntSize,
     // Address of init functions
@@ -518,7 +518,22 @@ enum DynamicEntryTag {
     // Size in bytes of PreInitArray
     PreInitArraySize,
     // Address of SYMTAB_SHNDX section
-    SymtabSectionHeadeIndex
+    SymtabSectionHeadeIndex,
+    // Versioning entry types
+    GnuVerSym,
+    GnuRelaCount,
+    GnuRelCount,
+    // State flags
+    StateFlags,
+    // Address of version definition table
+    GnuVerDef,
+    // Number of version definitions
+    GnuVerDefNum,
+    // Address of table with needed versions
+    GnuVerNeed,
+    // Number of needed versions
+    GnuVerNeedNum,
+    Unknown(u64),
 }
 
 #[derive(Debug)]
@@ -749,17 +764,26 @@ impl StringTable {
         StringTable { buffer: vec![] }
     }
 
-    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
+    fn new1(offset: u64, size: u64, reader: &mut Cursor<Vec<u8>>) -> StringTable {
         // XXX: check type of section header
 
-        reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
+        reader.seek(SeekFrom::Start(offset)).unwrap();
 
-        let mut handle = reader.take(hdr.sh_size);
+        let mut handle = reader.take(size);
         let mut buffer: Vec<u8> = Vec::new();
 
         handle.read_to_end(&mut buffer).unwrap();
+        println!("{:?}", buffer);
 
         StringTable { buffer }
+    }
+
+    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
+        // XXX: check type of section header
+        StringTable::new1(hdr.sh_offset,
+            hdr.sh_size,
+            reader)
+
     }
 }
 
@@ -1082,6 +1106,137 @@ impl Interpret {
         }
 
         Interpret { path }
+    }
+}
+
+impl DynamicEntry {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> DynamicEntry {
+
+        let tag = DynamicEntryTag::new(reader.read_u64::<LittleEndian>().unwrap());
+        let value = reader.read_u64::<LittleEndian>().unwrap();
+
+        DynamicEntry {
+            tag, value
+        }
+    }
+}
+
+impl DynamicEntryTag {
+    fn new(value: u64) -> DynamicEntryTag {
+        use DynamicEntryTag::*;
+
+        match value {
+            0 => Null,
+            1 => Needed,
+            2 => PltRelocsSize,
+            3 => PltGot,
+            4 => Hash,
+            5 => Strtab,
+            6 => Symtab,
+            7 => Rela,
+            8 => RelaSize,
+            9 => RelaEntSize,
+            10 => StrtabSize,
+            11 => SymtabEntSize,
+            12 => Init,
+            13 => Fini,
+            14 => SoName,
+            15 => Rpath,
+            16 => Symbolic,
+            17 => Rel,
+            18 => RelSize,
+            19 => RelEntSize,
+            20 => PltRel,
+            21 => Debug,
+            22 => TextRel,
+            23 => JmpRel,
+            24 => BindNow,
+            25 => InitArray,
+            26 => FiniArray,
+            27 => InitiArraySize,
+            28 => FiniArraySize,
+            29 => RunPath,
+            30 => Flags,
+            31 => Encoding,
+            32 => PreInitArray,
+            33 => PreInitArraySize,
+            34 => SymtabSectionHeadeIndex,
+            0x6ffffff0 => GnuVerSym,
+            0x6ffffff9 => GnuRelaCount,
+            0x6ffffffa => GnuRelCount,
+            0x6ffffffb => StateFlags,
+            0x6ffffffc => GnuVerDef,
+            0x6ffffffd => GnuVerDefNum,
+            0x6ffffffe => GnuVerNeed,
+            0x6fffffff => GnuVerNeedNum,
+            _ => Unknown(value),
+        }
+    }
+}
+
+impl DynamicSection {
+    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> DynamicSection {
+        // lets find dyamic section header
+        let mut header: Option<&SectionHeader> = None;
+
+        for hdr in &headers.headers {
+            if hdr.sh_type == SectionHeaderType::Dynamic {
+                header = Some(hdr);
+                break;
+            }
+        }
+
+        if header.is_none() {
+            return DynamicSection {
+                strtab: StringTable::empty(),
+                data: vec![]
+            }
+        }
+
+        let header = header.unwrap();
+
+        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
+        // read all dyn entries and string table address and size
+        let mut entries: Vec<DynamicEntry> = vec![];
+        let mut strtab_addr = 0;
+        let mut strtab_size = 0;
+
+        loop {
+            let entry = DynamicEntry::new(reader);
+
+            if entry.tag == DynamicEntryTag::Null {
+                entries.push(entry);
+                break;
+            } else if entry.tag == DynamicEntryTag::Strtab {
+                strtab_addr = entry.value;
+            } else if entry.tag == DynamicEntryTag::StrtabSize {
+                strtab_size = entry.value;
+            }
+            entries.push(entry);
+        }
+
+        // XXX: we should compute file addr from strtab addr (it's
+        //      vma) but for that we need program headers
+        println!("XXX {} {}", strtab_addr, strtab_size);
+
+        let mut strtab = StringTable::empty();
+
+        for hdr in &headers.headers {
+            if hdr.sh_type != SectionHeaderType::Strtab {
+                continue;
+            }
+
+            if hdr.sh_addr == strtab_addr &&
+               hdr.sh_size == strtab_size {
+                   strtab = StringTable::new(&hdr, &mut reader);
+            }
+            break;
+        }
+
+        DynamicSection {
+            strtab: strtab,
+            data: entries,
+        }
     }
 }
 
@@ -1553,6 +1708,7 @@ fn main() {
     let st = SymbolTables::new(&sh, &mut reader);
     let ns = NoteSections::new(&sh, &mut reader);
     let ip = Interpret::new(&ph, &mut reader);
+    let dy = DynamicSection::new(&sh, &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
@@ -1560,4 +1716,5 @@ fn main() {
     println!("{}", st);
     println!("{}", ns);
     println!("{}", ip);
+    println!("{:?}", dy);
 }
