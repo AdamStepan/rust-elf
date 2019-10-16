@@ -1176,6 +1176,7 @@ impl DynamicEntryTag {
 
 impl DynamicSection {
     fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> DynamicSection {
+        // XXX: refactor this shit
         // lets find dyamic section header
         let mut header: Option<&SectionHeader> = None;
 
@@ -1217,8 +1218,6 @@ impl DynamicSection {
 
         // XXX: we should compute file addr from strtab addr (it's
         //      vma) but for that we need program headers
-        println!("XXX {} {}", strtab_addr, strtab_size);
-
         let mut strtab = StringTable::empty();
 
         for hdr in &headers.headers {
@@ -1258,6 +1257,26 @@ impl fmt::Display for NoteSection {
 
         writeln!(f, "")?;
 
+        Ok(())
+    }
+}
+
+impl fmt::Display for DynamicSection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
+        writeln!(f, "Dynamic section contains {} entries:", self.data.len())?;
+        writeln!(f, "{:<32} Name/Value", "Tag")?;
+
+        for entry in &self.data {
+            write!(f, "{:<32} {:<4}", format!("{:?}", entry.tag), entry.value)?;
+
+            if entry.tag == DynamicEntryTag::Needed {
+                let name = self.strtab.get(entry.value);
+                write!(f, " ({})", name)?;
+            }
+
+            writeln!(f, "")?;
+        }
         Ok(())
     }
 }
@@ -1716,5 +1735,5 @@ fn main() {
     println!("{}", st);
     println!("{}", ns);
     println!("{}", ip);
-    println!("{:?}", dy);
+    println!("{}", dy);
 }
