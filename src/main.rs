@@ -533,6 +533,8 @@ enum DynamicEntryTag {
     GnuVerNeed,
     // Number of needed versions
     GnuVerNeedNum,
+    // GNU-style hash table
+    GnuHashTable,
     Unknown(u64),
 }
 
@@ -542,6 +544,51 @@ struct DynamicSection {
     // in dynamic linking
     data: Vec<DynamicEntry>,
     strtab: StringTable,
+}
+
+#[derive(Debug)]
+struct VersionNeed {
+    // Version of structure
+    version: u16,
+    // Number of associated aux entries
+    aux_count: u16,
+    // Offset of filename for this dependency
+    offset: u32,
+    // Offset in bytes to vernaux array
+    aux_offset: u32,
+    // Offset in bytes to next VersioNeed entry
+    next_offset: u32,
+}
+
+#[derive(Debug)]
+enum VersionNeedVersion {
+    // No version
+    None,
+    // Current version
+    Current,
+    // Given version number
+    Number,
+    Unknown(u32),
+}
+
+#[derive(Debug)]
+struct VersionAux {
+    // Hash value of dependency name
+    hash: u64,
+    // Dependency specific information
+    flags: u16,
+    // Unused
+    other: u16,
+    // Dependency name string offset
+    name: u64,
+    // Offset in bytes to next VersionAux
+    next: u64
+}
+
+#[derive(Debug)]
+enum VersionAuxFlags {
+    Weak,
+    Unknown(u32),
 }
 
 impl ElfFileHeader {
@@ -1169,6 +1216,7 @@ impl DynamicEntryTag {
             0x6ffffffd => GnuVerDefNum,
             0x6ffffffe => GnuVerNeed,
             0x6fffffff => GnuVerNeedNum,
+            0x6ffffef5 => GnuHashTable,
             _ => Unknown(value),
         }
     }
