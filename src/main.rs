@@ -811,8 +811,7 @@ impl StringTable {
         StringTable { buffer: vec![] }
     }
 
-    fn new1(offset: u64, size: u64, reader: &mut Cursor<Vec<u8>>) -> StringTable {
-        // XXX: check type of section header
+    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
 
         reader.seek(SeekFrom::Start(offset)).unwrap();
 
@@ -820,17 +819,8 @@ impl StringTable {
         let mut buffer: Vec<u8> = Vec::new();
 
         handle.read_to_end(&mut buffer).unwrap();
-        println!("{:?}", buffer);
 
         StringTable { buffer }
-    }
-
-    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
-        // XXX: check type of section header
-        StringTable::new1(hdr.sh_offset,
-            hdr.sh_size,
-            reader)
-
     }
 }
 
