@@ -444,7 +444,7 @@ struct DynamicEntry {
     // For each object with this type, tag controls the interpretation
     // of the value
     tag: DynamicEntryTag,
-    value: u64
+    value: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -583,7 +583,7 @@ struct VersionAux {
     // Dependency name string offset
     name: u64,
     // Offset in bytes to next VersionAux
-    next: u64
+    next: u64,
 }
 
 #[derive(Debug)]
@@ -598,7 +598,7 @@ struct VersionSection {
     // .dynamic string table used only for Display
     strtab: StringTable,
     // Name of the section acquired from sections strtab
-    name: String
+    name: String,
 }
 
 impl ElfFileHeader {
@@ -840,7 +840,6 @@ impl StringTable {
     }
 
     fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
-
         reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
 
         let mut handle = reader.take(hdr.sh_size);
@@ -1167,7 +1166,6 @@ impl Interpret {
 
             path = String::from_utf8(data).unwrap();
             break;
-
         }
 
         Interpret { path }
@@ -1176,13 +1174,10 @@ impl Interpret {
 
 impl DynamicEntry {
     fn new(reader: &mut Cursor<Vec<u8>>) -> DynamicEntry {
-
         let tag = DynamicEntryTag::new(reader.read_u64::<LittleEndian>().unwrap());
         let value = reader.read_u64::<LittleEndian>().unwrap();
 
-        DynamicEntry {
-            tag, value
-        }
+        DynamicEntry { tag, value }
     }
 }
 
@@ -1256,8 +1251,8 @@ impl DynamicSection {
         if header.is_none() {
             return DynamicSection {
                 strtab: StringTable::empty(),
-                data: vec![]
-            }
+                data: vec![],
+            };
         }
 
         let header = header.unwrap();
@@ -1291,9 +1286,8 @@ impl DynamicSection {
                 continue;
             }
 
-            if hdr.sh_addr == strtab_addr &&
-               hdr.sh_size == strtab_size {
-                   strtab = StringTable::new(&hdr, &mut reader);
+            if hdr.sh_addr == strtab_addr && hdr.sh_size == strtab_size {
+                strtab = StringTable::new(&hdr, &mut reader);
             }
             break;
         }
@@ -1319,7 +1313,6 @@ impl VersionNeed {
 
 impl VersionSection {
     fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> VersionSection {
-
         let mut header: Option<&SectionHeader> = None;
 
         for hdr in &headers.headers {
@@ -1333,8 +1326,8 @@ impl VersionSection {
             return VersionSection {
                 data: vec![],
                 strtab: StringTable::empty(),
-                name: String::from("")
-            }
+                name: String::from(""),
+            };
         }
 
         let header = header.unwrap();
@@ -1342,7 +1335,9 @@ impl VersionSection {
         let mut data: Vec<VersionNeed> = vec![];
 
         loop {
-            reader.seek(SeekFrom::Start(header.sh_offset + offset)).unwrap();
+            reader
+                .seek(SeekFrom::Start(header.sh_offset + offset))
+                .unwrap();
             let verneed = VersionNeed::new(reader);
             offset = verneed.next_offset as u64;
 
@@ -1351,14 +1346,12 @@ impl VersionSection {
             if offset == 0 {
                 break;
             }
-
-
         }
 
         let strtab = headers.dynstr(reader).unwrap();
         let name = headers.strtab.get(header.sh_name as u64);
 
-        VersionSection { data, strtab, name}
+        VersionSection { data, strtab, name }
     }
 }
 
@@ -1386,7 +1379,6 @@ impl fmt::Display for NoteSection {
 
 impl fmt::Display for DynamicSection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-
         writeln!(f, "Dynamic section contains {} entries:", self.data.len())?;
         writeln!(f, "{:<32} Name/Value", "Tag")?;
 
@@ -1595,7 +1587,6 @@ impl fmt::Display for Interpret {
 }
 
 fn show_machine(value: u16) -> &'static str {
-
     match value {
         0 => "No machine",
         1 => "AT&T WE 32100",
