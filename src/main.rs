@@ -131,7 +131,7 @@ enum Version {
     Invalid(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SectionHeader {
     // Section name (string tbl index)
     sh_name: u32,
@@ -155,7 +155,7 @@ struct SectionHeader {
     sh_entsize: u64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum SectionHeaderType {
     // Section header table entry unused
     Null,
@@ -552,11 +552,12 @@ struct VersionNeed {
     version: u16,
     // Number of associated aux entries
     aux_count: u16,
-    // Offset of filename for this dependency
-    offset: u32,
+    // Offset of filename in the dynstr section
+    file_offset: u32,
     // Offset in bytes to vernaux array
     aux_offset: u32,
-    // Offset in bytes to next VersioNeed entry
+    // Offset in bytes to next VersionNeed entry, offset
+    // is relative to version need section
     next_offset: u32,
 }
 
@@ -589,6 +590,15 @@ struct VersionAux {
 enum VersionAuxFlags {
     Weak,
     Unknown(u32),
+}
+
+#[derive(Debug)]
+struct VersionSection {
+    data: Vec<VersionNeed>,
+    // .dynamic string table used only for Display
+    strtab: StringTable,
+    // Name of the section acquired from sections strtab
+    name: String
 }
 
 impl ElfFileHeader {
@@ -788,6 +798,24 @@ impl SectionHeaders {
 
         SectionHeaders { headers, strtab }
     }
+
+    fn dynstr(&self, reader: &mut Cursor<Vec<u8>>) -> Option<StringTable> {
+        for header in &self.headers {
+            if header.sh_type != SectionHeaderType::Strtab {
+                continue;
+            }
+
+            let name = self.strtab.get(header.sh_name as u64);
+
+            if name != String::from(".dynstr") {
+                continue;
+            }
+
+            return Some(StringTable::new(header, reader));
+        }
+
+        None
+    }
 }
 
 impl StringTable {
@@ -813,9 +841,9 @@ impl StringTable {
 
     fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
 
-        reader.seek(SeekFrom::Start(offset)).unwrap();
+        reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
 
-        let mut handle = reader.take(size);
+        let mut handle = reader.take(hdr.sh_size);
         let mut buffer: Vec<u8> = Vec::new();
 
         handle.read_to_end(&mut buffer).unwrap();
@@ -1274,6 +1302,63 @@ impl DynamicSection {
             strtab: strtab,
             data: entries,
         }
+    }
+}
+
+impl VersionNeed {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> VersionNeed {
+        VersionNeed {
+            version: reader.read_u16::<LittleEndian>().unwrap(),
+            aux_count: reader.read_u16::<LittleEndian>().unwrap(),
+            file_offset: reader.read_u32::<LittleEndian>().unwrap(),
+            aux_offset: reader.read_u32::<LittleEndian>().unwrap(),
+            next_offset: reader.read_u32::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl VersionSection {
+    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> VersionSection {
+
+        let mut header: Option<&SectionHeader> = None;
+
+        for hdr in &headers.headers {
+            if hdr.sh_type == SectionHeaderType::GnuVerNeed {
+                header = Some(hdr);
+                break;
+            }
+        }
+
+        if header.is_none() {
+            return VersionSection {
+                data: vec![],
+                strtab: StringTable::empty(),
+                name: String::from("")
+            }
+        }
+
+        let header = header.unwrap();
+        let mut offset: u64 = 0;
+        let mut data: Vec<VersionNeed> = vec![];
+
+        loop {
+            reader.seek(SeekFrom::Start(header.sh_offset + offset)).unwrap();
+            let verneed = VersionNeed::new(reader);
+            offset = verneed.next_offset as u64;
+
+            data.push(verneed);
+
+            if offset == 0 {
+                break;
+            }
+
+
+        }
+
+        let strtab = headers.dynstr(reader).unwrap();
+        let name = headers.strtab.get(header.sh_name as u64);
+
+        VersionSection { data, strtab, name}
     }
 }
 
@@ -1766,6 +1851,7 @@ fn main() {
     let ns = NoteSections::new(&sh, &mut reader);
     let ip = Interpret::new(&ph, &mut reader);
     let dy = DynamicSection::new(&sh, &mut reader);
+    let vs = VersionSection::new(&sh, &mut reader);
 
     println!("{}", fh);
     println!("{}", ph);
@@ -1774,4 +1860,5 @@ fn main() {
     println!("{}", ns);
     println!("{}", ip);
     println!("{}", dy);
+    println!("{:?}", vs);
 }
