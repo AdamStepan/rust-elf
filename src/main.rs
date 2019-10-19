@@ -569,32 +569,32 @@ enum VersionNeedVersion {
     Current,
     // Given version number
     Number,
-    Unknown(u32),
+    Unknown(u16),
 }
 
 #[derive(Debug)]
 struct VersionAux {
     // Hash value of dependency name
-    hash: u64,
+    hash: u32,
     // Dependency specific information
-    flags: u16,
+    flags: VersionAuxFlags,
     // Unused
     other: u16,
     // Dependency name string offset
-    name: u64,
+    name: u32,
     // Offset in bytes to next VersionAux
-    next: u64,
+    next: u32,
 }
 
 #[derive(Debug)]
 enum VersionAuxFlags {
     Weak,
-    Unknown(u32),
+    Unknown(u16),
 }
 
 #[derive(Debug)]
 struct VersionSection {
-    data: Vec<VersionNeed>,
+    data: Vec<(Vec<VersionAux>, VersionNeed)>,
     // .dynamic string table used only for Display
     strtab: StringTable,
     // Name of the section acquired from sections strtab
@@ -1312,7 +1312,7 @@ impl VersionNeed {
 }
 
 impl VersionSection {
-    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> VersionSection {
+    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> Option<VersionSection> {
         let mut header: Option<&SectionHeader> = None;
 
         for hdr in &headers.headers {
@@ -1323,27 +1323,41 @@ impl VersionSection {
         }
 
         if header.is_none() {
-            return VersionSection {
-                data: vec![],
-                strtab: StringTable::empty(),
-                name: String::from(""),
-            };
+            return None;
         }
 
         let header = header.unwrap();
         let mut offset: u64 = 0;
-        let mut data: Vec<VersionNeed> = vec![];
+        let mut data: Vec<(Vec<VersionAux>, VersionNeed)> = vec![];
+        let mut aux: Vec<VersionAux> = vec![];
 
         loop {
             reader
                 .seek(SeekFrom::Start(header.sh_offset + offset))
                 .unwrap();
+
             let verneed = VersionNeed::new(reader);
-            offset = verneed.next_offset as u64;
+            let mut aux_offset: u64 = verneed.aux_offset as u64;
+            let mut i = 0;
 
-            data.push(verneed);
+            while i < verneed.aux_count {
+                reader
+                    .seek(SeekFrom::Start(header.sh_offset + offset + aux_offset))
+                    .unwrap();
 
-            if offset == 0 {
+                let au = VersionAux::new(reader);
+
+                aux_offset += au.next as u64;
+                aux.push(au);
+                i += 1;
+            }
+
+            offset += verneed.next_offset as u64;
+            let fuckit = verneed.next_offset;
+            data.push((aux, verneed));
+            aux = vec![];
+
+            if fuckit == 0 {
                 break;
             }
         }
@@ -1351,7 +1365,27 @@ impl VersionSection {
         let strtab = headers.dynstr(reader).unwrap();
         let name = headers.strtab.get(header.sh_name as u64);
 
-        VersionSection { data, strtab, name }
+        Some(VersionSection { data, strtab, name })
+    }
+}
+impl VersionAux {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> VersionAux {
+        VersionAux {
+            hash: reader.read_u32::<LittleEndian>().unwrap(),
+            flags: VersionAuxFlags::new(reader.read_u16::<LittleEndian>().unwrap()),
+            other: reader.read_u16::<LittleEndian>().unwrap(),
+            name: reader.read_u32::<LittleEndian>().unwrap(),
+            next: reader.read_u32::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl VersionAuxFlags {
+    fn new(value: u16) -> VersionAuxFlags {
+        match value {
+            0x2 => VersionAuxFlags::Weak,
+            _ => VersionAuxFlags::Unknown(value),
+        }
     }
 }
 
@@ -1842,7 +1876,7 @@ fn main() {
     let ns = NoteSections::new(&sh, &mut reader);
     let ip = Interpret::new(&ph, &mut reader);
     let dy = DynamicSection::new(&sh, &mut reader);
-    let vs = VersionSection::new(&sh, &mut reader);
+    let vs = VersionSection::new(&sh, &mut reader).unwrap();
 
     println!("{}", fh);
     println!("{}", ph);
@@ -1851,5 +1885,5 @@ fn main() {
     println!("{}", ns);
     println!("{}", ip);
     println!("{}", dy);
-    println!("{:?}", vs);
+    // println!("{:?}", vs);
 }
