@@ -1331,7 +1331,9 @@ impl VersionSection {
         let mut data: Vec<(Vec<VersionAux>, VersionNeed)> = vec![];
         let mut aux: Vec<VersionAux> = vec![];
 
-        loop {
+        let mut cnt = 0;
+
+        while cnt < header.sh_info {
             reader
                 .seek(SeekFrom::Start(header.sh_offset + offset))
                 .unwrap();
@@ -1353,13 +1355,10 @@ impl VersionSection {
             }
 
             offset += verneed.next_offset as u64;
-            let fuckit = verneed.next_offset;
             data.push((aux, verneed));
             aux = vec![];
 
-            if fuckit == 0 {
-                break;
-            }
+            cnt += 1;
         }
 
         let strtab = headers.dynstr(reader).unwrap();
