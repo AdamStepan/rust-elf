@@ -588,6 +588,7 @@ struct VersionAux {
 
 #[derive(Debug)]
 enum VersionAuxFlags {
+    None,
     Weak,
     Unknown(u16),
 }
@@ -1382,9 +1383,43 @@ impl VersionAux {
 impl VersionAuxFlags {
     fn new(value: u16) -> VersionAuxFlags {
         match value {
+            0x0 => VersionAuxFlags::None,
             0x2 => VersionAuxFlags::Weak,
             _ => VersionAuxFlags::Unknown(value),
         }
+    }
+}
+
+impl fmt::Display for VersionSection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "Version needs section `{}' contain {} entries",
+            self.name,
+            self.data.len()
+        )?;
+
+        for (auxes, verneed) in &self.data {
+            let file = self.strtab.get(verneed.file_offset as u64);
+
+            writeln!(
+                f,
+                "Version: {:<4} File: {:<16} AuxCount: {:<4}",
+                verneed.version, file, verneed.aux_count
+            )?;
+
+            for aux in auxes {
+                let name = self.strtab.get(aux.name as u64);
+
+                writeln!(
+                    f,
+                    "    Version: {:<4} Name: {:<16} Flags: {:?} Hash: {:#08x}",
+                    aux.other, name, aux.flags, aux.hash
+                )?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1884,5 +1919,5 @@ fn main() {
     println!("{}", ns);
     println!("{}", ip);
     println!("{}", dy);
-    // println!("{:?}", vs);
+    println!("{}", vs);
 }
