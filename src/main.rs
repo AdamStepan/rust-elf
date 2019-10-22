@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate clap;
+
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fmt;
 use std::io::prelude::*;
@@ -1882,22 +1885,54 @@ fn to_hex_string(bytes: Vec<u8>) -> String {
     strs.join(" ")
 }
 
+struct DisplayOptions {
+    file_header: bool,
+    program_headers: bool,
+    section_headers: bool,
+    symbols: bool,
+    notes: bool,
+    dynamic: bool,
+    version_info: bool,
+    interpret: bool,
+}
+
 fn main() {
-    use std::env;
     use std::fs::File;
-    use std::process;
 
-    let args: Vec<String> = env::args().collect();
+    let matches = clap_app!(readelf =>
+        (version: "0.8")
+        (author: "Adam S. <adam.stepan@firma.seznam.cz>")
+        (about: "Displays information about ELF files")
+        (@arg all: -a --all "Equivalent to: -h -l -S -s -d -V -i")
+        (@arg ("file-header"): -h --("file-header") "Display the ELF file header")
+        (@arg interpret: -i --interpret "Display data of .interp section")
+        (@arg ("program-headers"): -l --("program-headers") "Display the program headers")
+        (@arg ("section-headers"): -S --("section-headers") "Display the sections' header")
+        (@arg symbols: -s --("symbols") "Display the symbol table")
+        (@arg notes: --notes "Display notes")
+        (@arg dynamic: -d --dynamic "Display the dynamic section")
+        (@arg ("version-info"): -V --("version-info") "Display the version sections")
+        (@arg file: +required "elf-file")
+    )
+    .get_matches();
 
-    if args.len() < 2 {
-        println!("usage: rustelf <binary>");
-        process::exit(1);
-    }
-
-    let filename = &args[1];
+    let filename = matches.value_of("file").unwrap();
 
     let mut file = File::open(filename).unwrap();
     let mut buffer = Vec::new();
+
+    let all = matches.is_present("all");
+
+    let display = DisplayOptions {
+        file_header: matches.is_present("file-header") || all,
+        interpret: matches.is_present("interpret") || all,
+        program_headers: matches.is_present("program-headers") || all,
+        section_headers: matches.is_present("section-headers") || all,
+        symbols: matches.is_present("symbols") || all,
+        notes: matches.is_present("notes") || all,
+        dynamic: matches.is_present("dynamic") || all,
+        version_info: matches.is_present("version-info") || all,
+    };
 
     file.read_to_end(&mut buffer).unwrap();
 
@@ -1912,12 +1947,35 @@ fn main() {
     let dy = DynamicSection::new(&sh, &mut reader);
     let vs = VersionSection::new(&sh, &mut reader).unwrap();
 
-    println!("{}", fh);
-    println!("{}", ph);
-    println!("{}", sh);
-    println!("{}", st);
-    println!("{}", ns);
-    println!("{}", ip);
-    println!("{}", dy);
-    println!("{}", vs);
+    if display.file_header {
+        println!("{}", fh);
+    }
+
+    if display.program_headers {
+        println!("{}", ph);
+    }
+
+    if display.section_headers {
+        println!("{}", sh);
+    }
+
+    if display.interpret {
+        println!("{}", ip);
+    }
+
+    if display.symbols {
+        println!("{}", st);
+    }
+
+    if display.notes {
+        println!("{}", ns);
+    }
+
+    if display.dynamic {
+        println!("{}", dy);
+    }
+
+    if display.version_info {
+        println!("{}", vs);
+    }
 }
