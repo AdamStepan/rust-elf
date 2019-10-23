@@ -605,6 +605,29 @@ struct VersionSection {
     name: String,
 }
 
+#[derive(Debug)]
+struct RelocationEntry {
+    // Address
+    offset: u64,
+    // Relocation type
+    reltype: u32,
+    // Symbol index
+    symidx: u32,
+    // Addend
+    addend: i64,
+}
+
+#[derive(Debug)]
+struct RelocationSection {
+    entries: Vec<RelocationEntry>,
+    symtab: SymbolTable,
+}
+
+#[derive(Debug)]
+struct RelocationSections {
+    sections: Vec<RelocationSection>,
+}
+
 impl ElfFileHeader {
     fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
         // XXX: check magic
@@ -1883,6 +1906,94 @@ fn sh_flags(value: u64) -> String {
 fn to_hex_string(bytes: Vec<u8>) -> String {
     let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
     strs.join(" ")
+}
+
+fn amd64_relocs(value: u32) -> &'static str {
+    match value {
+        /* No reloc */
+        0 => "R_X86_64_NONE",
+        /* Direct 64 bit */
+        1 => "R_X86_64_64",
+        /* PC relative 32 bit signed */
+        2 => "R_X86_64_PC32",
+        /* 32 bit GOT entry */
+        3 => "R_X86_64_GOT32",
+        /* 32 bit PLT address */
+        4 => "R_X86_64_PLT32",
+        /* Copy symbol at runtime */
+        5 => "R_X86_64_COPY",
+        /* Create GOT entry */
+        6 => "R_X86_64_GLOB_DAT",
+        /* Create PLT entry */
+        7 => "R_X86_64_JUMP_SLOT",
+        /* Adjust by program base */
+        8 => "R_X86_64_RELATIVE",
+        /* 32 bit signed PC relative offset to GOT */
+        9 => "R_X86_64_GOTPCREL",
+        /* Direct 32 bit zero extended */
+        10 => "R_X86_64_32",
+        /* Direct 32 bit sign extended */
+        11 => "R_X86_64_32S",
+        /* Direct 16 bit zero extended */
+        12 => "R_X86_64_16",
+        /* 16 bit sign extended pc relative */
+        13 => "R_X86_64_PC16",
+        /* Direct 8 bit sign extended */
+        14 => "R_X86_64_8",
+        /* 8 bit sign extended pc relative */
+        15 => "R_X86_64_PC8",
+        /* ID of module containing symbol */
+        16 => "R_X86_64_DTPMOD64",
+        /* Offset in module's TLS block */
+        17 => "R_X86_64_DTPOFF64",
+        /* Offset in initial TLS block */
+        18 => "R_X86_64_TPOFF64",
+        /* 32 bit signed PC relative offset to two GOT entries for GD symbol */
+        19 => "R_X86_64_TLSGD",
+        /* 32 bit signed PC relative offset to two GOT entries for LD symbol */
+        20 => "R_X86_64_TLSLD",
+        /* Offset in TLS block */
+        21 => "R_X86_64_DTPOFF32",
+        /* 32 bit signed PC relative offset to GOT entry for IE symbol */
+        22 => "R_X86_64_GOTTPOFF",
+        /* Offset in initial TLS block */
+        23 => "R_X86_64_TPOFF32",
+        /* PC relative 64 bit */
+        24 => "R_X86_64_PC64",
+        /* 64 bit offset to GOT */
+        25 => "R_X86_64_GOTOFF64",
+        /* 32 bit signed pc relative offset to GOT */
+        26 => "R_X86_64_GOTPC32",
+        /* 64-bit GOT entry offset */
+        27 => "R_X86_64_GOT64",
+        /* 64-bit PC relative offset to GOT entry */
+        28 => "R_X86_64_GOTPCREL64",
+        /* 64-bit PC relative offset to GOT */
+        29 => "R_X86_64_GOTPC64",
+        /* like GOT64, says PLT entry needed */
+        30 => "R_X86_64_GOTPLT64",
+        /* 64-bit GOT relative offset to PLT entry */
+        31 => "R_X86_64_PLTOFF64",
+        /* Size of symbol plus 32-bit addend */
+        32 => "R_X86_64_SIZE32",
+        /* Size of symbol plus 64-bit addend */
+        33 => "R_X86_64_SIZE64",
+        /* GOT offset for TLS descriptor. */
+        34 => "R_X86_64_GOTPC32_TLSDESC",
+        /* Marker for call through TLS descriptor. */
+        35 => "R_X86_64_TLSDESC_CALL",
+        /* TLS descriptor. */
+        36 => "R_X86_64_TLSDESC",
+        /* Adjust indirectly by program base */
+        37 => "R_X86_64_IRELATIVE",
+        /* 64-bit adjust by program base */
+        38 => "R_X86_64_RELATIVE64",
+        /* Load from 32 bit signed pc relative offset to GOT entry without REX prefix, relaxable. */
+        41 => "R_X86_64_GOTPCRELX",
+        /* Load from 32 bit signed pc relative offset to GOT entry with REX prefix, relaxable. */
+        42 => "R_X86_64_REX_GOTPCRELX",
+        _ => "Unknown",
+    }
 }
 
 struct DisplayOptions {
