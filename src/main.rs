@@ -842,6 +842,10 @@ impl SectionHeaders {
         self.get_all(header_type).pop()
     }
 
+    fn get_by_index(&self, index: usize) -> SectionHeader {
+        self.headers[index].clone()
+    }
+
     fn dynstr(&self, reader: &mut Cursor<Vec<u8>>) -> Option<StringTable> {
         for header in &self.headers {
             if header.sh_type != SectionHeaderType::Strtab {
@@ -1285,32 +1289,21 @@ impl DynamicSection {
         reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
         // read all dyn entries and string table address and size
         let mut entries: Vec<DynamicEntry> = vec![];
-        let mut strtab_addr = 0;
-        let mut strtab_size = 0;
 
+        // read entries until you get DT_NULL terminator
         loop {
+
             let entry = DynamicEntry::new(reader);
 
-            if entry.tag == DynamicEntryTag::Null {
-                entries.push(entry);
-                break;
-            } else if entry.tag == DynamicEntryTag::Strtab {
-                strtab_addr = entry.value;
-            } else if entry.tag == DynamicEntryTag::StrtabSize {
-                strtab_size = entry.value;
-            }
             entries.push(entry);
-        }
 
-        // XXX: use `sh_link` to find a correct table, this is a hack
-        let mut strtab = StringTable::empty();
-
-        for hdr in headers.get_all(SectionHeaderType::Strtab) {
-            if hdr.sh_addr == strtab_addr && hdr.sh_size == strtab_size {
-                strtab = StringTable::new(&hdr, &mut reader);
+            if entries.last().unwrap().tag == DynamicEntryTag::Null {
+                break;
             }
-            break;
         }
+
+        let strtab_header = headers.get_by_index(header.sh_link as usize);
+        let strtab = StringTable::new(&strtab_header, &mut reader);
 
         Some(DynamicSection {
             strtab: strtab,
