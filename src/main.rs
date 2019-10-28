@@ -826,6 +826,22 @@ impl SectionHeaders {
         SectionHeaders { headers, strtab }
     }
 
+    fn get_all(&self, header_type: SectionHeaderType) -> Vec<SectionHeader> {
+        let mut result: Vec<SectionHeader> = Vec::new();
+
+        for header in &self.headers {
+            if header.sh_type == header_type {
+                result.push(header.clone());
+            }
+        }
+
+        result
+    }
+
+    fn get(&self, header_type: SectionHeaderType) -> Option<SectionHeader> {
+        self.get_all(header_type).pop()
+    }
+
     fn dynstr(&self, reader: &mut Cursor<Vec<u8>>) -> Option<StringTable> {
         for header in &self.headers {
             if header.sh_type != SectionHeaderType::Strtab {
@@ -1142,11 +1158,13 @@ impl NoteSection {
         let mut data = vec![];
         let mut i: u32 = 0;
 
+        // 3 * 4 = 3 * uint32 = size of header
+        let min_note_size = 3 * 4;
+
         // XXX: use some better method for checking the end
         while i < header.sh_size as u32 {
             let note = Note::new(&mut reader);
-            // 3 * 4 = 3 * uint32 = size of header
-            i += 3 * 4 + note.name_size + note.desc_size;
+            i += min_note_size + note.name_size + note.desc_size;
             // last entry
             if note.name_size == 0 {
                 break;
@@ -1166,11 +1184,9 @@ impl NoteSections {
     fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> NoteSections {
         let mut data: Vec<NoteSection> = vec![];
 
-        for header in &headers.headers {
-            if header.sh_type == SectionHeaderType::Note {
-                let name = headers.strtab.get(header.sh_name as u64);
-                data.push(NoteSection::new(&header, name, reader));
-            }
+        for header in &headers.get_all(SectionHeaderType::Note) {
+            let name = headers.strtab.get(header.sh_name as u64);
+            data.push(NoteSection::new(&header, name, reader));
         }
 
         NoteSections { data }
@@ -1263,26 +1279,8 @@ impl DynamicEntryTag {
 }
 
 impl DynamicSection {
-    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> DynamicSection {
-        // XXX: refactor this shit
-        // lets find dyamic section header
-        let mut header: Option<&SectionHeader> = None;
-
-        for hdr in &headers.headers {
-            if hdr.sh_type == SectionHeaderType::Dynamic {
-                header = Some(hdr);
-                break;
-            }
-        }
-
-        if header.is_none() {
-            return DynamicSection {
-                strtab: StringTable::empty(),
-                data: vec![],
-            };
-        }
-
-        let header = header.unwrap();
+    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> Option<DynamicSection> {
+        let header = headers.get(SectionHeaderType::Dynamic)?;
 
         reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
         // read all dyn entries and string table address and size
@@ -1304,25 +1302,20 @@ impl DynamicSection {
             entries.push(entry);
         }
 
-        // XXX: we should compute file addr from strtab addr (it's
-        //      vma) but for that we need program headers
+        // XXX: use `sh_link` to find a correct table, this is a hack
         let mut strtab = StringTable::empty();
 
-        for hdr in &headers.headers {
-            if hdr.sh_type != SectionHeaderType::Strtab {
-                continue;
-            }
-
+        for hdr in headers.get_all(SectionHeaderType::Strtab) {
             if hdr.sh_addr == strtab_addr && hdr.sh_size == strtab_size {
                 strtab = StringTable::new(&hdr, &mut reader);
             }
             break;
         }
 
-        DynamicSection {
+        Some(DynamicSection {
             strtab: strtab,
             data: entries,
-        }
+        })
     }
 }
 
@@ -1340,20 +1333,8 @@ impl VersionNeed {
 
 impl VersionSection {
     fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> Option<VersionSection> {
-        let mut header: Option<&SectionHeader> = None;
+        let header = headers.get(SectionHeaderType::GnuVerNeed)?;
 
-        for hdr in &headers.headers {
-            if hdr.sh_type == SectionHeaderType::GnuVerNeed {
-                header = Some(hdr);
-                break;
-            }
-        }
-
-        if header.is_none() {
-            return None;
-        }
-
-        let header = header.unwrap();
         let mut offset: u64 = 0;
         let mut data: Vec<(Vec<VersionAux>, VersionNeed)> = vec![];
         let mut aux: Vec<VersionAux> = vec![];
@@ -2055,7 +2036,7 @@ fn main() {
     let st = SymbolTables::new(&sh, &mut reader);
     let ns = NoteSections::new(&sh, &mut reader);
     let ip = Interpret::new(&ph, &mut reader);
-    let dy = DynamicSection::new(&sh, &mut reader);
+    let dy = DynamicSection::new(&sh, &mut reader).unwrap();
     let vs = VersionSection::new(&sh, &mut reader).unwrap();
 
     if display.file_header {
