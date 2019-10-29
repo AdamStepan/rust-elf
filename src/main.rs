@@ -1085,8 +1085,16 @@ impl Note {
         reader.read_exact(&mut desc_).unwrap();
 
         let name = String::from_utf8(name_).unwrap();
-        let note_type = NoteType::new(type_);
-        let desc = NoteDesc::new(&note_type, desc_);
+
+        let note_type = match name.as_ref() {
+            "GNU\0" => NoteType::gnu(type_),
+            _ => NoteType::default(type_),
+        };
+
+        let desc = match name.as_ref() {
+            "GNU\0" => NoteDesc::gnu(&note_type, desc_),
+            _ => NoteDesc::default(&note_type, desc_),
+        };
 
         Note {
             name_size,
@@ -1099,7 +1107,7 @@ impl Note {
 }
 
 impl NoteType {
-    fn new(value: u32) -> NoteType {
+    fn gnu(value: u32) -> NoteType {
         use NoteType::*;
 
         match value {
@@ -1111,10 +1119,14 @@ impl NoteType {
             _ => Unknown(value),
         }
     }
+
+    fn default(value: u32) -> NoteType {
+        NoteType::Unknown(value)
+    }
 }
 
 impl NoteDesc {
-    fn new(value: &NoteType, data: Vec<u8>) -> NoteDesc {
+    fn gnu(value: &NoteType, data: Vec<u8>) -> NoteDesc {
         use NoteDesc::*;
 
         let asu32 = |index: usize| {
@@ -1137,6 +1149,10 @@ impl NoteDesc {
             NoteType::GnuProperty => GnuProperty(data),
             _ => Unknown(data),
         }
+    }
+
+    fn default(value: &NoteType, data: Vec<u8>) -> NoteDesc {
+        NoteDesc::Unknown(data)
     }
 }
 
