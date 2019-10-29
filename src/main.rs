@@ -2026,11 +2026,6 @@ fn main() {
     let fh = ElfFileHeader::new(&mut reader);
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
-    let st = SymbolTables::new(&sh, &mut reader);
-    let ns = NoteSections::new(&sh, &mut reader);
-    let ip = Interpret::new(&ph, &mut reader);
-    let dy = DynamicSection::new(&sh, &mut reader).unwrap();
-    let vs = VersionSection::new(&sh, &mut reader).unwrap();
 
     if display.file_header {
         println!("{}", fh);
@@ -2045,22 +2040,22 @@ fn main() {
     }
 
     if display.interpret {
-        println!("{}", ip);
+        println!("{}", Interpret::new(&ph, &mut reader));
     }
 
     if display.symbols {
-        println!("{}", st);
+        println!("{}", SymbolTables::new(&sh, &mut reader));
     }
 
     if display.notes {
-        println!("{}", ns);
+        println!("{}", NoteSections::new(&sh, &mut reader));
     }
 
     if display.dynamic {
-        println!("{}", dy);
+        println!("{}", DynamicSection::new(&sh, &mut reader).unwrap());
     }
 
     if display.version_info {
-        println!("{}", vs);
+        println!("{}", VersionSection::new(&sh, &mut reader).unwrap());
     }
 }
