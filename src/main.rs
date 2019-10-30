@@ -275,7 +275,7 @@ struct ProgramHeaders {
     headers: Vec<ProgramHeader>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Symbol {
     // Symbol name (string tbl index)
     st_name: u32,
@@ -293,7 +293,7 @@ struct Symbol {
     st_size: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SymbolType {
     // SymboType is unspecified
     NoType,
@@ -314,7 +314,7 @@ enum SymbolType {
     Unknown(u8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SymbolBinding {
     // Local symbol
     Local,
@@ -328,7 +328,7 @@ enum SymbolBinding {
     Unknown(u8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SymbolVisibility {
     // Default symbol visibility rules
     Default,
@@ -621,6 +621,7 @@ struct RelocationEntry {
 struct RelocationSection {
     entries: Vec<RelocationEntry>,
     symtab: SymbolTable,
+    name: String,
 }
 
 #[derive(Debug)]
@@ -1053,6 +1054,10 @@ impl SymbolTable {
             strtab: StringTable::new(&strtab, reader),
         }
     }
+
+    fn get_by_index(&self, index: usize) -> Symbol {
+        self.data.get(index).unwrap().clone()
+    }
 }
 
 impl SymbolTables {
@@ -1308,7 +1313,6 @@ impl DynamicSection {
 
         // read entries until you get DT_NULL terminator
         loop {
-
             let entry = DynamicEntry::new(reader);
 
             entries.push(entry);
@@ -1403,6 +1407,63 @@ impl VersionAuxFlags {
             0x2 => VersionAuxFlags::Weak,
             _ => VersionAuxFlags::Unknown(value),
         }
+    }
+}
+
+impl RelocationEntry {
+    fn new(reader: &mut Cursor<Vec<u8>>) -> RelocationEntry {
+        RelocationEntry {
+            offset: reader.read_u64::<LittleEndian>().unwrap(),
+            reltype: reader.read_u32::<LittleEndian>().unwrap(),
+            symidx: reader.read_u32::<LittleEndian>().unwrap(),
+            addend: reader.read_i64::<LittleEndian>().unwrap(),
+        }
+    }
+}
+
+impl RelocationSection {
+    fn new(
+        header: &SectionHeader,
+        name: String,
+        symtab: SymbolTable,
+        reader: &mut Cursor<Vec<u8>>,
+    ) -> RelocationSection {
+        let mut entries = vec![];
+        let mut offset = 0;
+
+        while offset < header.sh_size {
+            reader
+                .seek(SeekFrom::Start(header.sh_offset + offset))
+                .unwrap();
+            entries.push(RelocationEntry::new(reader));
+            offset += header.sh_entsize;
+        }
+
+        RelocationSection {
+            symtab: symtab,
+            name: name,
+            entries: entries,
+        }
+    }
+}
+
+impl RelocationSections {
+    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> RelocationSections {
+        let mut sections: Vec<RelocationSection> = vec![];
+
+        let mut rel_headers = headers.get_all(SectionHeaderType::Rel);
+        rel_headers.extend(headers.get_all(SectionHeaderType::Rela));
+
+        for header in &rel_headers {
+            let symtab_header = headers.get_by_index(header.sh_link as usize);
+
+            let name = headers.strtab.get(header.sh_name as u64);
+            let symtab = SymbolTable::new(&headers, header, &mut reader);
+
+            sections.push(RelocationSection::new(&header, name, symtab, reader));
+        }
+
+        RelocationSections { sections }
     }
 }
 
@@ -1995,6 +2056,7 @@ struct DisplayOptions {
     dynamic: bool,
     version_info: bool,
     interpret: bool,
+    relocs: bool,
 }
 
 fn main() {
@@ -2013,6 +2075,7 @@ fn main() {
         (@arg notes: --notes "Display notes")
         (@arg dynamic: -d --dynamic "Display the dynamic section")
         (@arg ("version-info"): -V --("version-info") "Display the version sections")
+        (@arg relocs: -r --relocs "Display the relocations")
         (@arg file: +required "elf-file")
     )
     .get_matches();
@@ -2033,6 +2096,7 @@ fn main() {
         notes: matches.is_present("notes") || all,
         dynamic: matches.is_present("dynamic") || all,
         version_info: matches.is_present("version-info") || all,
+        relocs: matches.is_present("relocs"), // ignore all for now
     };
 
     file.read_to_end(&mut buffer).unwrap();
@@ -2073,5 +2137,9 @@ fn main() {
 
     if display.version_info {
         println!("{}", VersionSection::new(&sh, &mut reader).unwrap());
+    }
+
+    if display.relocs {
+        println!("{:?}", RelocationSections::new(&sh, &mut reader));
     }
 }
