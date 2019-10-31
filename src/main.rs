@@ -345,6 +345,7 @@ struct SymbolTable {
     data: Vec<Symbol>,
     strtab: StringTable,
     name: String,
+    symsize: usize,
 }
 
 #[derive(Debug)]
@@ -613,8 +614,8 @@ struct RelocationEntry {
     reltype: u32,
     // Symbol index
     symidx: u32,
-    // Addend
-    addend: i64,
+    // Addend (present only for Rela section)
+    addend: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -622,6 +623,7 @@ struct RelocationSection {
     entries: Vec<RelocationEntry>,
     symtab: SymbolTable,
     name: String,
+    kind: SectionHeaderType,
 }
 
 #[derive(Debug)]
@@ -1052,11 +1054,16 @@ impl SymbolTable {
             data: data,
             name: name,
             strtab: StringTable::new(&strtab, reader),
+            symsize: header.sh_entsize as usize,
         }
     }
 
-    fn get_by_index(&self, index: usize) -> Symbol {
-        self.data.get(index).unwrap().clone()
+    fn get_by_index(&self, index: usize) -> (String, Symbol) {
+
+        let sym = self.data.get(index).unwrap();
+        let name = self.strtab.get(sym.st_name as u64);
+
+        (name, sym.clone())
     }
 }
 
@@ -1411,12 +1418,19 @@ impl VersionAuxFlags {
 }
 
 impl RelocationEntry {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> RelocationEntry {
+    fn new(reader: &mut Cursor<Vec<u8>>, has_addend: bool) -> RelocationEntry {
+
+        let offset = reader.read_u64::<LittleEndian>().unwrap();
+        let reltype = reader.read_u32::<LittleEndian>().unwrap();
+        let symidx = reader.read_u32::<LittleEndian>().unwrap();
+        let addend = if has_addend {
+            Some(reader.read_i64::<LittleEndian>().unwrap())
+        } else {
+            None
+        };
+
         RelocationEntry {
-            offset: reader.read_u64::<LittleEndian>().unwrap(),
-            reltype: reader.read_u32::<LittleEndian>().unwrap(),
-            symidx: reader.read_u32::<LittleEndian>().unwrap(),
-            addend: reader.read_i64::<LittleEndian>().unwrap(),
+            offset, reltype, symidx, addend
         }
     }
 }
@@ -1435,7 +1449,10 @@ impl RelocationSection {
             reader
                 .seek(SeekFrom::Start(header.sh_offset + offset))
                 .unwrap();
-            entries.push(RelocationEntry::new(reader));
+
+            let has_addend = header.sh_type == SectionHeaderType::Rela;
+
+            entries.push(RelocationEntry::new(reader, has_addend));
             offset += header.sh_entsize;
         }
 
@@ -1443,6 +1460,7 @@ impl RelocationSection {
             symtab: symtab,
             name: name,
             entries: entries,
+            kind: header.sh_type.clone()
         }
     }
 }
@@ -1458,7 +1476,7 @@ impl RelocationSections {
             let symtab_header = headers.get_by_index(header.sh_link as usize);
 
             let name = headers.strtab.get(header.sh_name as u64);
-            let symtab = SymbolTable::new(&headers, header, &mut reader);
+            let symtab = SymbolTable::new(&headers, &symtab_header, &mut reader);
 
             sections.push(RelocationSection::new(&header, name, symtab, reader));
         }
@@ -1728,6 +1746,45 @@ impl fmt::Display for SymbolTables {
 impl fmt::Display for Interpret {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "Interpret path: `{}'", self.path)
+    }
+}
+
+impl fmt::Display for RelocationSections {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = Ok(());
+
+        for section in &self.sections{
+            result = section.fmt(f);
+            writeln!(f, "")?;
+        }
+        result
+    }
+}
+
+impl fmt::Display for RelocationSection {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = Ok(());
+        writeln!(f, "Relocation section `{}' contains {} entries:",
+                 self.name, self.entries.len())?;
+        writeln!(f, "{:<16} {:<12} {:<20} {:<16} {:<16}",
+                 "Offset", "Info", "Type", "Sym. Value", "Sym. Name + Addend")?;
+
+        for entry in &self.entries {
+            let (name, symbol) = self.symtab.get_by_index(entry.symidx as usize);
+
+            let addend = if entry.addend.is_some() {
+                entry.addend.unwrap()
+            } else {
+                0
+            };
+
+            writeln!(f, "{:#016x} {:#012x} {:<20} {:#016x} {} + {}",
+                     entry.offset, 0, amd64_relocs(entry.reltype),
+                     symbol.st_value, name, addend)?;
+        }
+        result
     }
 }
 
@@ -2140,6 +2197,6 @@ fn main() {
     }
 
     if display.relocs {
-        println!("{:?}", RelocationSections::new(&sh, &mut reader));
+        println!("{}", RelocationSections::new(&sh, &mut reader));
     }
 }
