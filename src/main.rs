@@ -1768,11 +1768,29 @@ impl fmt::Display for RelocationSection {
         let mut result = Ok(());
         writeln!(f, "Relocation section `{}' contains {} entries:",
                  self.name, self.entries.len())?;
-        writeln!(f, "{:<16} {:<12} {:<20} {:<16} {:<16}",
-                 "Offset", "Info", "Type", "Sym. Value", "Sym. Name + Addend")?;
 
-        for entry in &self.entries {
+        writeln!(f,
+            "{:<6} {:<12} {:<20} {:<12} {:<16}",
+            "Num", "Sym. Size", "Sym. Type", "Sym. Bind", "Sym. Vis",
+        )?;
+        writeln!(f, "       {:<12} {:<20} {:<12} {:<16} {:<16}",
+                 "Offset", "Type", "Sym. Value", "Addend", "Sym. Name")?;
+
+
+        for (n, entry) in self.entries.iter().enumerate() {
             let (name, symbol) = self.symtab.get_by_index(entry.symidx as usize);
+
+            let typ = format!("{:?}", symbol.st_type);
+            let bin = format!("{:?}", symbol.st_bind);
+            let vis = format!("{:?}", symbol.st_vis);
+
+            let ndx = if symbol.st_shndx == 65521 {
+                String::from("Und")
+            } else {
+                format!("{:03}", symbol.st_shndx)
+            };
+
+            writeln!(f, "{:<06} {:#012x} {:<20} {:<12} {:16}", n, symbol.st_size, typ, bin, vis)?;
 
             let addend = if entry.addend.is_some() {
                 entry.addend.unwrap()
@@ -1780,9 +1798,9 @@ impl fmt::Display for RelocationSection {
                 0
             };
 
-            writeln!(f, "{:#016x} {:#012x} {:<20} {:#016x} {} + {}",
-                     entry.offset, 0, amd64_relocs(entry.reltype),
-                     symbol.st_value, name, addend)?;
+            writeln!(f, "       {:#012x} {:<20} {:#012x} {:#016x} {} ",
+                     entry.offset, amd64_relocs(entry.reltype), symbol.st_value,
+                     addend, name)?;
         }
         result
     }
