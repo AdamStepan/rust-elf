@@ -1059,7 +1059,6 @@ impl SymbolTable {
     }
 
     fn get_by_index(&self, index: usize) -> (String, Symbol) {
-
         let sym = self.data.get(index).unwrap();
         let name = self.strtab.get(sym.st_name as u64);
 
@@ -1419,7 +1418,6 @@ impl VersionAuxFlags {
 
 impl RelocationEntry {
     fn new(reader: &mut Cursor<Vec<u8>>, has_addend: bool) -> RelocationEntry {
-
         let offset = reader.read_u64::<LittleEndian>().unwrap();
         let reltype = reader.read_u32::<LittleEndian>().unwrap();
         let symidx = reader.read_u32::<LittleEndian>().unwrap();
@@ -1430,7 +1428,10 @@ impl RelocationEntry {
         };
 
         RelocationEntry {
-            offset, reltype, symidx, addend
+            offset,
+            reltype,
+            symidx,
+            addend,
         }
     }
 }
@@ -1460,7 +1461,7 @@ impl RelocationSection {
             symtab: symtab,
             name: name,
             entries: entries,
-            kind: header.sh_type.clone()
+            kind: header.sh_type.clone(),
         }
     }
 }
@@ -1750,11 +1751,10 @@ impl fmt::Display for Interpret {
 }
 
 impl fmt::Display for RelocationSections {
-
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut result = Ok(());
 
-        for section in &self.sections{
+        for section in &self.sections {
             result = section.fmt(f);
             writeln!(f, "")?;
         }
@@ -1763,19 +1763,25 @@ impl fmt::Display for RelocationSections {
 }
 
 impl fmt::Display for RelocationSection {
-
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut result = Ok(());
-        writeln!(f, "Relocation section `{}' contains {} entries:",
-                 self.name, self.entries.len())?;
+        writeln!(
+            f,
+            "Relocation section `{}' contains {} entries:",
+            self.name,
+            self.entries.len()
+        )?;
 
-        writeln!(f,
+        writeln!(
+            f,
             "{:<6} {:<12} {:<20} {:<12} {:<16}",
             "Num", "Sym. Size", "Sym. Type", "Sym. Bind", "Sym. Vis",
         )?;
-        writeln!(f, "       {:<12} {:<20} {:<12} {:<16} {:<16}",
-                 "Offset", "Type", "Sym. Value", "Addend", "Sym. Name")?;
-
+        writeln!(
+            f,
+            "       {:<12} {:<20} {:<12} {:<16} {:<16}",
+            "Offset", "Type", "Sym. Value", "Addend", "Sym. Name"
+        )?;
 
         for (n, entry) in self.entries.iter().enumerate() {
             let (name, symbol) = self.symtab.get_by_index(entry.symidx as usize);
@@ -1790,7 +1796,11 @@ impl fmt::Display for RelocationSection {
                 format!("{:03}", symbol.st_shndx)
             };
 
-            writeln!(f, "{:<06} {:#012x} {:<20} {:<12} {:16}", n, symbol.st_size, typ, bin, vis)?;
+            writeln!(
+                f,
+                "{:<06} {:#012x} {:<20} {:<12} {:16}",
+                n, symbol.st_size, typ, bin, vis
+            )?;
 
             let addend = if entry.addend.is_some() {
                 entry.addend.unwrap()
@@ -1798,9 +1808,15 @@ impl fmt::Display for RelocationSection {
                 0
             };
 
-            writeln!(f, "       {:#012x} {:<20} {:#012x} {:#016x} {} ",
-                     entry.offset, amd64_relocs(entry.reltype), symbol.st_value,
-                     addend, name)?;
+            writeln!(
+                f,
+                "       {:#012x} {:<20} {:#012x} {:#016x} {} ",
+                entry.offset,
+                amd64_relocs(entry.reltype),
+                symbol.st_value,
+                addend,
+                name
+            )?;
         }
         result
     }
