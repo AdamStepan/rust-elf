@@ -566,17 +566,6 @@ struct VersionNeed {
 }
 
 #[derive(Debug)]
-enum VersionNeedVersion {
-    // No version
-    None,
-    // Current version
-    Current,
-    // Given version number
-    Number,
-    Unknown(u16),
-}
-
-#[derive(Debug)]
 struct VersionAux {
     // Hash value of dependency name
     hash: u32,
@@ -1106,7 +1095,7 @@ impl Note {
 
         let desc = match name.as_ref() {
             "GNU\0" => NoteDesc::gnu(&note_type, desc_),
-            _ => NoteDesc::default(&note_type, desc_),
+            _ => NoteDesc::default(desc_),
         };
 
         Note {
@@ -1164,7 +1153,7 @@ impl NoteDesc {
         }
     }
 
-    fn default(value: &NoteType, data: Vec<u8>) -> NoteDesc {
+    fn default(data: Vec<u8>) -> NoteDesc {
         NoteDesc::Unknown(data)
     }
 }
@@ -1768,7 +1757,6 @@ impl fmt::Display for RelocationSections {
 
 impl fmt::Display for RelocationSection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut result = Ok(());
         writeln!(
             f,
             "Relocation section `{}' contains {} entries:",
@@ -1794,12 +1782,6 @@ impl fmt::Display for RelocationSection {
             let bin = format!("{:?}", symbol.st_bind);
             let vis = format!("{:?}", symbol.st_vis);
 
-            let ndx = if symbol.st_shndx == 65521 {
-                String::from("Und")
-            } else {
-                format!("{:03}", symbol.st_shndx)
-            };
-
             writeln!(
                 f,
                 "{:<06} {:#012x} {:<20} {:<12} {:16}",
@@ -1822,7 +1804,7 @@ impl fmt::Display for RelocationSection {
                 name
             )?;
         }
-        result
+        Ok(())
     }
 }
 
