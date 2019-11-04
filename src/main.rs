@@ -631,8 +631,10 @@ struct RelocationSections {
     sections: Vec<RelocationSection>,
 }
 
+type Reader = Cursor<Vec<u8>>;
+
 impl ElfFileHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> ElfFileHeader {
+    fn new(reader: &mut Reader) -> ElfFileHeader {
         // XXX: check magic
         let mut e_magic: [u8; 4] = [0; 4];
         reader.read_exact(&mut e_magic).unwrap();
@@ -757,7 +759,7 @@ impl Version {
 }
 
 impl SectionHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> SectionHeader {
+    fn new(reader: &mut Reader) -> SectionHeader {
         SectionHeader {
             sh_name: reader.read_u32::<LittleEndian>().unwrap(),
             sh_type: SectionHeaderType::new(reader.read_u32::<LittleEndian>().unwrap()),
@@ -807,7 +809,7 @@ impl SectionHeaderType {
 }
 
 impl SectionHeaders {
-    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> SectionHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Reader) -> SectionHeaders {
         reader.seek(SeekFrom::Start(header.e_shoff)).unwrap();
 
         let mut headers: Vec<SectionHeader> = vec![];
@@ -849,7 +851,7 @@ impl SectionHeaders {
         self.headers[index].clone()
     }
 
-    fn dynstr(&self, reader: &mut Cursor<Vec<u8>>) -> Option<StringTable> {
+    fn dynstr(&self, reader: &mut Reader) -> Option<StringTable> {
         for header in &self.headers {
             if header.sh_type != SectionHeaderType::Strtab {
                 continue;
@@ -889,7 +891,7 @@ impl StringTable {
         StringTable { buffer: vec![] }
     }
 
-    fn new(hdr: &SectionHeader, reader: &mut Cursor<Vec<u8>>) -> StringTable {
+    fn new(hdr: &SectionHeader, reader: &mut Reader) -> StringTable {
         reader.seek(SeekFrom::Start(hdr.sh_offset)).unwrap();
 
         let mut handle = reader.take(hdr.sh_size);
@@ -902,7 +904,7 @@ impl StringTable {
 }
 
 impl ProgramHeader {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> ProgramHeader {
+    fn new(reader: &mut Reader) -> ProgramHeader {
         ProgramHeader {
             p_type: SegmentType::new(reader.read_u32::<LittleEndian>().unwrap()),
             p_flags: reader.read_u32::<LittleEndian>().unwrap(),
@@ -938,7 +940,7 @@ impl SegmentType {
 }
 
 impl ProgramHeaders {
-    fn new(header: &ElfFileHeader, mut reader: &mut Cursor<Vec<u8>>) -> ProgramHeaders {
+    fn new(header: &ElfFileHeader, mut reader: &mut Reader) -> ProgramHeaders {
         reader
             .seek(std::io::SeekFrom::Start(header.e_phoff))
             .unwrap();
@@ -956,7 +958,7 @@ impl ProgramHeaders {
 }
 
 impl Symbol {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> Symbol {
+    fn new(reader: &mut Reader) -> Symbol {
         let st_name = reader.read_u32::<LittleEndian>().unwrap();
 
         let st_info = reader.read_u8().unwrap();
@@ -1033,7 +1035,7 @@ impl SymbolTable {
     fn new(
         headers: &SectionHeaders,
         header: &SectionHeader,
-        mut reader: &mut Cursor<Vec<u8>>,
+        mut reader: &mut Reader,
     ) -> SymbolTable {
         // XXX: check that header.sh_type is SHT_SYMTAB or SHT_DYNSYM
         reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
@@ -1067,7 +1069,7 @@ impl SymbolTable {
 }
 
 impl SymbolTables {
-    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> SymbolTables {
+    fn new(headers: &SectionHeaders, reader: &mut Reader) -> SymbolTables {
         let mut data: Vec<SymbolTable> = vec![];
 
         for header in &headers.headers {
@@ -1083,7 +1085,7 @@ impl SymbolTables {
 }
 
 impl Note {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> Note {
+    fn new(reader: &mut Reader) -> Note {
         let name_size = reader.read_u32::<LittleEndian>().unwrap();
         let desc_size = reader.read_u32::<LittleEndian>().unwrap();
 
@@ -1181,9 +1183,11 @@ impl NoteOs {
     }
 }
 
+
 impl NoteSection {
+
     // TODO: add new for ProgramHeaer
-    fn new(header: &SectionHeader, name: String, mut reader: &mut Cursor<Vec<u8>>) -> NoteSection {
+    fn new(header: &SectionHeader, name: String, mut reader: &mut Reader) -> NoteSection {
         reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
 
         let mut data = vec![];
@@ -1212,7 +1216,7 @@ impl NoteSection {
 }
 
 impl NoteSections {
-    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> NoteSections {
+    fn new(headers: &SectionHeaders, reader: &mut Reader) -> NoteSections {
         let mut data: Vec<NoteSection> = vec![];
 
         for header in &headers.get_all(SectionHeaderType::Note) {
@@ -1225,7 +1229,7 @@ impl NoteSections {
 }
 
 impl Interpret {
-    fn new(headers: &ProgramHeaders, reader: &mut Cursor<Vec<u8>>) -> Interpret {
+    fn new(headers: &ProgramHeaders, reader: &mut Reader) -> Interpret {
         let mut path = String::from("");
 
         for header in &headers.headers {
@@ -1247,7 +1251,7 @@ impl Interpret {
 }
 
 impl DynamicEntry {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> DynamicEntry {
+    fn new(reader: &mut Reader) -> DynamicEntry {
         let tag = DynamicEntryTag::new(reader.read_u64::<LittleEndian>().unwrap());
         let value = reader.read_u64::<LittleEndian>().unwrap();
 
@@ -1310,7 +1314,7 @@ impl DynamicEntryTag {
 }
 
 impl DynamicSection {
-    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> Option<DynamicSection> {
+    fn new(headers: &SectionHeaders, mut reader: &mut Reader) -> Option<DynamicSection> {
         let header = headers.get(SectionHeaderType::Dynamic)?;
 
         reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
@@ -1339,7 +1343,7 @@ impl DynamicSection {
 }
 
 impl VersionNeed {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> VersionNeed {
+    fn new(reader: &mut Reader) -> VersionNeed {
         VersionNeed {
             version: reader.read_u16::<LittleEndian>().unwrap(),
             aux_count: reader.read_u16::<LittleEndian>().unwrap(),
@@ -1351,7 +1355,7 @@ impl VersionNeed {
 }
 
 impl VersionSection {
-    fn new(headers: &SectionHeaders, reader: &mut Cursor<Vec<u8>>) -> Option<VersionSection> {
+    fn new(headers: &SectionHeaders, reader: &mut Reader) -> Option<VersionSection> {
         let header = headers.get(SectionHeaderType::GnuVerNeed)?;
 
         let mut offset: u64 = 0;
@@ -1395,7 +1399,7 @@ impl VersionSection {
     }
 }
 impl VersionAux {
-    fn new(reader: &mut Cursor<Vec<u8>>) -> VersionAux {
+    fn new(reader: &mut Reader) -> VersionAux {
         VersionAux {
             hash: reader.read_u32::<LittleEndian>().unwrap(),
             flags: VersionAuxFlags::new(reader.read_u16::<LittleEndian>().unwrap()),
@@ -1417,7 +1421,7 @@ impl VersionAuxFlags {
 }
 
 impl RelocationEntry {
-    fn new(reader: &mut Cursor<Vec<u8>>, has_addend: bool) -> RelocationEntry {
+    fn new(reader: &mut Reader, has_addend: bool) -> RelocationEntry {
         let offset = reader.read_u64::<LittleEndian>().unwrap();
         let reltype = reader.read_u32::<LittleEndian>().unwrap();
         let symidx = reader.read_u32::<LittleEndian>().unwrap();
@@ -1441,7 +1445,7 @@ impl RelocationSection {
         header: &SectionHeader,
         name: String,
         symtab: SymbolTable,
-        reader: &mut Cursor<Vec<u8>>,
+        reader: &mut Reader,
     ) -> RelocationSection {
         let mut entries = vec![];
         let mut offset = 0;
@@ -1467,7 +1471,7 @@ impl RelocationSection {
 }
 
 impl RelocationSections {
-    fn new(headers: &SectionHeaders, mut reader: &mut Cursor<Vec<u8>>) -> RelocationSections {
+    fn new(headers: &SectionHeaders, mut reader: &mut Reader) -> RelocationSections {
         let mut sections: Vec<RelocationSection> = vec![];
 
         let mut rel_headers = headers.get_all(SectionHeaderType::Rel);
