@@ -1175,9 +1175,9 @@ impl NoteOs {
 
 impl NoteSection {
 
-    // TODO: add new for ProgramHeaer
-    fn new(header: &SectionHeader, name: String, mut reader: &mut Reader) -> NoteSection {
-        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
+    fn new_from_file(offset: u64, size: u64, name: Option<String>, mut reader: &mut Reader) -> NoteSection {
+
+        reader.seek(SeekFrom::Start(offset)).unwrap();
 
         let mut data = vec![];
         let mut i: u32 = 0;
@@ -1186,7 +1186,7 @@ impl NoteSection {
         let min_note_size = 3 * 4;
 
         // XXX: use some better method for checking the end
-        while i < header.sh_size as u32 {
+        while i < size as u32 {
             let note = Note::new(&mut reader);
             i += min_note_size + note.name_size + note.desc_size;
             // last entry
@@ -1199,8 +1199,16 @@ impl NoteSection {
 
         NoteSection {
             data: data,
-            name: name,
+            name: name.unwrap_or("".to_string()),
         }
+    }
+
+    fn new_from_core(header: &ProgramHeader, reader: &mut Reader) -> NoteSection {
+        NoteSection::new_from_file(header.p_offset, header.p_filesz, None, reader)
+    }
+
+    fn new(header: &SectionHeader, name: String, reader: &mut Reader) -> NoteSection {
+        NoteSection::new_from_file(header.sh_offset, header.sh_size, Some(name), reader)
     }
 }
 
