@@ -2217,11 +2217,19 @@ fn main() {
     }
 
     if display.dynamic {
-        println!("{}", DynamicSection::new(&sh, &mut reader).unwrap());
+        if let Some(dynamic) = DynamicSection::new(&sh, &mut reader) {
+            println!("{}", dynamic);
+        } else {
+            println!("There is no dynamic section in this file\n");
+        }
     }
 
     if display.version_info {
-        println!("{}", VersionSection::new(&sh, &mut reader).unwrap());
+        if let Some(version_info) = VersionSection::new(&sh, &mut reader) {
+            println!("{}", version_info);
+        } else {
+            println!("No version information found in this file\n");
+        }
     }
 
     if display.relocs {
