@@ -222,7 +222,7 @@ struct StringTable {
     buffer: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ProgramHeader {
     // Segment type
     p_type: SegmentType,
@@ -242,7 +242,7 @@ struct ProgramHeader {
     p_align: u64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum SegmentType {
     // Program header table entry unused
     Null,
@@ -929,6 +929,18 @@ impl SegmentType {
 }
 
 impl ProgramHeaders {
+    fn get_all(&self, kind: SegmentType) -> Vec<ProgramHeader> {
+        let mut headers: Vec<ProgramHeader> = vec![];
+
+        for header in &self.headers {
+            if header.p_type == kind {
+                headers.push(header.clone());
+            }
+        }
+
+        headers
+    }
+
     fn new(header: &ElfFileHeader, mut reader: &mut Reader) -> ProgramHeaders {
         reader
             .seek(std::io::SeekFrom::Start(header.e_phoff))
@@ -1074,7 +1086,7 @@ impl SymbolTables {
 }
 
 impl Note {
-    fn new(reader: &mut Reader) -> Note {
+    fn new(align: u64, reader: &mut Reader) -> Note {
         let name_size = reader.read_u32::<LittleEndian>().unwrap();
         let desc_size = reader.read_u32::<LittleEndian>().unwrap();
 
@@ -1083,6 +1095,10 @@ impl Note {
         let mut name_ = vec![0; name_size as usize];
         reader.read_exact(&mut name_).unwrap();
 
+        let off = note_desc_offset(name_size.into(), align);
+
+        reader.seek(SeekFrom::Current(off as i64)).unwrap();
+
         let mut desc_ = vec![0; desc_size as usize];
         reader.read_exact(&mut desc_).unwrap();
 
@@ -1090,11 +1106,13 @@ impl Note {
 
         let note_type = match name.as_ref() {
             "GNU\0" => NoteType::gnu(type_),
+            "CORE\0" => NoteType::core(type_),
             _ => NoteType::default(type_),
         };
 
         let desc = match name.as_ref() {
             "GNU\0" => NoteDesc::gnu(&note_type, desc_),
+            "CORE\0" => NoteDesc::core(&note_type, desc_),
             _ => NoteDesc::default(desc_),
         };
 
@@ -1120,6 +1138,10 @@ impl NoteType {
             5 => GnuProperty,
             _ => Unknown(value),
         }
+    }
+
+    fn core(value: u32) -> NoteType {
+        NoteType::Unknown(value)
     }
 
     fn default(value: u32) -> NoteType {
@@ -1153,6 +1175,10 @@ impl NoteDesc {
         }
     }
 
+    fn core(value: &NoteType, data: Vec<u8>) -> NoteDesc {
+        NoteDesc::Unknown(data)
+    }
+
     fn default(data: Vec<u8>) -> NoteDesc {
         NoteDesc::Unknown(data)
     }
@@ -1172,23 +1198,25 @@ impl NoteOs {
     }
 }
 
-
 impl NoteSection {
-
-    fn new_from_file(offset: u64, size: u64, name: Option<String>, mut reader: &mut Reader) -> NoteSection {
-
+    fn new_from_file(
+        offset: u64,
+        size: u64,
+        align: u64,
+        name: Option<String>,
+        mut reader: &mut Reader,
+    ) -> NoteSection {
         reader.seek(SeekFrom::Start(offset)).unwrap();
 
         let mut data = vec![];
-        let mut i: u32 = 0;
+        let mut pos: u64 = 0;
 
-        // 3 * 4 = 3 * uint32 = size of header
-        let min_note_size = 3 * 4;
+        while pos < size {
+            reader.seek(SeekFrom::Start(offset + pos)).unwrap();
 
-        // XXX: use some better method for checking the end
-        while i < size as u32 {
-            let note = Note::new(&mut reader);
-            i += min_note_size + note.name_size + note.desc_size;
+            let note = Note::new(align, &mut reader);
+            pos += note_next_offset(note.name_size.into(), note.desc_size.into(), align);
+
             // last entry
             if note.name_size == 0 {
                 break;
@@ -1204,21 +1232,41 @@ impl NoteSection {
     }
 
     fn new_from_core(header: &ProgramHeader, reader: &mut Reader) -> NoteSection {
-        NoteSection::new_from_file(header.p_offset, header.p_filesz, None, reader)
+        NoteSection::new_from_file(
+            header.p_offset,
+            header.p_filesz,
+            header.p_align,
+            None,
+            reader,
+        )
     }
 
     fn new(header: &SectionHeader, name: String, reader: &mut Reader) -> NoteSection {
-        NoteSection::new_from_file(header.sh_offset, header.sh_size, Some(name), reader)
+        NoteSection::new_from_file(
+            header.sh_offset,
+            header.sh_size,
+            header.sh_addralign,
+            Some(name),
+            reader,
+        )
     }
 }
 
 impl NoteSections {
-    fn new(headers: &SectionHeaders, reader: &mut Reader) -> NoteSections {
+    fn new(
+        headers: &SectionHeaders,
+        prheaders: &ProgramHeaders,
+        reader: &mut Reader,
+    ) -> NoteSections {
         let mut data: Vec<NoteSection> = vec![];
 
         for header in &headers.get_all(SectionHeaderType::Note) {
             let name = headers.strtab.get(header.sh_name as u64);
             data.push(NoteSection::new(&header, name, reader));
+        }
+
+        for prheader in &prheaders.get_all(SegmentType::Note) {
+            data.push(NoteSection::new_from_core(&prheader, reader));
         }
 
         NoteSections { data }
@@ -2132,6 +2180,34 @@ fn amd64_relocs(value: u32) -> &'static str {
     }
 }
 
+fn align_up(size: u64, align: u64) -> u64 {
+    /* Some PT_NOTE segment may have alignment value of 0
+     * or 1. ABI specifies that PT_NOTE segments should be
+     * aligned to 4 bytes in 32-bit objects and to 8 bytes in
+     * 64-bit objects.
+     */
+    let align = if align <= 4 { 4 } else { align };
+
+    (size + align - 1) & !(align - 1)
+}
+
+/* sizeof(Elf64_Nhdr)
+ * typedef struct {
+ *    Elf64_Word n_namesz;
+ *    Elf64_Word n_descsz;
+ *    Elf64_Word n_type;
+ * } Elf64_Nhdr;
+ */
+const ELF_NOTE_SIZE: u64 = 3 * 4;
+
+fn note_desc_offset(namesz: u64, align: u64) -> u64 {
+    align_up(ELF_NOTE_SIZE + namesz, align)
+}
+
+fn note_next_offset(namesz: u64, descsz: u64, align: u64) -> u64 {
+    align_up(note_desc_offset(namesz, align) + descsz, align)
+}
+
 struct DisplayOptions {
     file_header: bool,
     program_headers: bool,
@@ -2213,7 +2289,7 @@ fn main() {
     }
 
     if display.notes {
-        println!("{}", NoteSections::new(&sh, &mut reader));
+        println!("{}", NoteSections::new(&sh, &ph, &mut reader));
     }
 
     if display.dynamic {
