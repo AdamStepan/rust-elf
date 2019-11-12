@@ -380,6 +380,43 @@ enum NoteType {
     GnuGoldVersion,
     // Program property
     GnuProperty,
+    // Descriptor types for core files
+    // Contains copy of prstatus struct
+    PrStatus,
+    // Contains copy of fpregset struct
+    PrFpReg,
+    // Contains copy of prpsinfo struct
+    PrPsInfo,
+    // Contains copy of prxregset struct
+    PrxReg,
+    // Contains copy of task structure
+    TaskStruct,
+    // String from sysinfo(SI_PLATFORM)
+    Platform,
+    // Contains copy of auxv array
+    Auxw,
+    // Contains copy of gwindows struct
+    GWindows,
+    // Contains copy of asrset struct
+    AsRet,
+    // Contains copy of pstatus struct
+    PsStatus,
+    // Contains copy of psinfo struct
+    PsInfo,
+    // Contains copy of prcred struct
+    PrcRed,
+    // Contains copy of utsname struct
+    UtsName,
+    // Contains copy of lwpstatus struct
+    LwpStatus,
+    // Contains copy of lwpinfo struct
+    LwpInfo,
+    // Contains copy of fprxregset struct
+    FprxRegSet,
+    // Contains copy of siginfo_t, size might increase
+    SigInfo,
+    // Contains information about mapped files
+    MappedFiles,
     // Unknown
     Unknown(u32),
 }
