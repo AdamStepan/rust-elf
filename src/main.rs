@@ -1143,7 +1143,6 @@ enum NoteOwner {
 impl NoteOwner {
     fn new(name: &str) -> NoteOwner {
         use NoteOwner::*;
-        println!("{}", name);
         match name {
             "GNU\0" => Gnu,
             "LINUX\0" | "CORE\0" => Core,
