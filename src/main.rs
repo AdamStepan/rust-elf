@@ -1,6 +1,4 @@
-#[macro_use]
-extern crate clap;
-
+use clap::clap_app;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fmt;
 use std::io::prelude::*;
