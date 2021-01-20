@@ -482,7 +482,7 @@ enum NoteOs {
     Gnu,
     Solaris2,
     FreeBsd,
-    Unknown(u8),
+    Unknown(u32),
 }
 
 #[derive(Debug)]
@@ -1161,7 +1161,8 @@ impl Note {
         let mut name_ = vec![0; name_size as usize];
         reader.read_exact(&mut name_).unwrap();
 
-        let off = note_desc_offset(name_size.into(), align);
+        let cur = name_size + ELF_NOTE_SIZE as u32;
+        let off = note_desc_offset(name_size.into(), align) - cur as u64;
 
         reader.seek(SeekFrom::Current(off as i64)).unwrap();
 
@@ -1261,18 +1262,18 @@ impl NoteDesc {
         use NoteDesc::*;
 
         let asu32 = |index: usize| {
-            (data[index + 3] as u32)
-                | ((data[index + 2] as u32) << 8)
-                | ((data[index + 1] as u32) << 16)
-                | ((data[index] as u32) << 24)
+            (data[index] as u32)
+                | ((data[index + 1] as u32) << 8)
+                | ((data[index + 2] as u32) << 16)
+                | ((data[index + 3] as u32) << 24)
         };
 
         match value {
             NoteType::ElfNoteAbi => ElfNoteAbi {
-                os: NoteOs::new(data[0]),
-                major: asu32(1),
-                minor: asu32(5),
-                patch: asu32(9),
+                os: NoteOs::new(asu32(0)),
+                major: asu32(4),
+                minor: asu32(8),
+                patch: asu32(12),
             },
             NoteType::GnuHwCap => GnuHwCap(data),
             NoteType::GnuBuildID => GnuBuildID(to_hex_string(data)),
@@ -1292,7 +1293,7 @@ impl NoteDesc {
 }
 
 impl NoteOs {
-    fn new(value: u8) -> NoteOs {
+    fn new(value: u32) -> NoteOs {
         use NoteOs::*;
 
         match value {
