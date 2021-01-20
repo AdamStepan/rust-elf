@@ -1373,8 +1373,11 @@ impl NoteSections {
             data.push(NoteSection::new(&header, name, reader));
         }
 
-        for prheader in &prheaders.get_all(SegmentType::Note) {
-            data.push(NoteSection::new_from_core(&prheader, reader));
+        // try to parse notes from program headers
+        if data.len() == 0 {
+            for prheader in &prheaders.get_all(SegmentType::Note) {
+                data.push(NoteSection::new_from_core(&prheader, reader));
+            }
         }
 
         NoteSections { data }
