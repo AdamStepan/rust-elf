@@ -365,8 +365,12 @@ struct Note {
     desc: NoteDesc,
 }
 
+
+// There is multiple note types: core, gnu, linux, other
 #[derive(Debug)]
 enum NoteType {
+    // Note Types for GNU systems
+
     // ABI information
     ElfNoteAbi,
     // Synthetic hwcap information
@@ -378,15 +382,15 @@ enum NoteType {
     GnuGoldVersion,
     // Program property
     GnuProperty,
+
     // Descriptor types for core files
+
     // Contains copy of prstatus struct
     PrStatus,
     // Contains copy of fpregset struct
     PrFpReg,
     // Contains copy of prpsinfo struct
     PrPsInfo,
-    // Contains copy of prxregset struct
-    PrxReg,
     // Contains copy of task structure
     TaskStruct,
     // String from sysinfo(SI_PLATFORM)
@@ -415,6 +419,12 @@ enum NoteType {
     SigInfo,
     // Contains information about mapped files
     MappedFiles,
+    // x86 extended state using xsave
+    X86ExtendedState,
+
+    // Note types for object files
+    Version,
+
     // Unknown
     Unknown(u32),
 }
@@ -453,6 +463,8 @@ enum NoteDesc {
     Unknown(Vec<u8>),
 }
 
+// Note section contents.
+// Each entry in the note sections begins with a header of fixed form.
 #[derive(Debug)]
 struct NoteSection {
     data: Vec<Note>,
@@ -1120,6 +1132,26 @@ impl SymbolTables {
     }
 }
 
+#[derive(Debug)]
+enum NoteOwner {
+    Gnu,
+    Core,
+    // FreeBSD, NetBSD, ...
+    Unknown,
+}
+
+impl NoteOwner {
+    fn new(name: &str) -> NoteOwner {
+        use NoteOwner::*;
+        println!("{}", name);
+        match name {
+            "GNU\0" => Gnu,
+            "LINUX\0" | "CORE\0" => Core,
+            _ => Unknown,
+        }
+    }
+}
+
 impl Note {
     fn new(align: u64, reader: &mut Reader) -> Note {
         let name_size = reader.read_u32::<LittleEndian>().unwrap();
@@ -1138,17 +1170,18 @@ impl Note {
         reader.read_exact(&mut desc_).unwrap();
 
         let name = String::from_utf8(name_).unwrap();
+        let owner = NoteOwner::new(&name);
 
-        let note_type = match name.as_ref() {
-            "GNU\0" => NoteType::gnu(type_),
-            "CORE\0" => NoteType::core(type_),
-            _ => NoteType::default(type_),
+        let note_type = match owner {
+            NoteOwner::Gnu => NoteType::gnu(type_),
+            NoteOwner::Core => NoteType::core(type_),
+            NoteOwner::Unknown => NoteType::default(type_),
         };
 
-        let desc = match name.as_ref() {
-            "GNU\0" => NoteDesc::gnu(&note_type, desc_),
-            "CORE\0" => NoteDesc::core(&note_type, desc_),
-            _ => NoteDesc::default(desc_),
+        let desc = match owner {
+            NoteOwner::Gnu => NoteDesc::gnu(&note_type, desc_),
+            NoteOwner::Core => NoteDesc::core(&note_type, desc_),
+            NoteOwner::Unknown => NoteDesc::default(desc_),
         };
 
         Note {
@@ -1176,12 +1209,52 @@ impl NoteType {
     }
 
     fn core(value: u32) -> NoteType {
-        NoteType::Unknown(value)
+        use NoteType::*;
+
+        match value {
+            1 => PrStatus,
+            2 => PrFpReg,
+            3 => PrPsInfo,
+            4 => TaskStruct,
+            5 => Platform,
+            6 => Auxw,
+            7 => GWindows,
+            8 => AsRet,
+            10 => PsStatus,
+            13 => PsInfo,
+            14 => PrcRed,
+            15 => UtsName,
+            16 => LwpStatus,
+            17 => LwpInfo,
+            20 => FprxRegSet,
+            0x53494749 => SigInfo,
+            0x46494c45 => MappedFiles,
+            0x202 => X86ExtendedState,
+            _ => Unknown(value),
+        }
     }
 
     fn default(value: u32) -> NoteType {
-        NoteType::Unknown(value)
+        use NoteType::*;
+
+        match value {
+            1 => Version,
+            _ => NoteType::Unknown(value)
+        }
     }
+}
+
+struct MappedFile {
+    start: u64,
+    end: u64,
+    page_offset: u64,
+    filename: String
+}
+
+struct MappedFiles {
+    count: usize,
+    pagesize: usize,
+    files: Vec<MappedFile>,
 }
 
 impl NoteDesc {
@@ -2261,7 +2334,7 @@ fn main() {
     let matches = clap_app!(readelf =>
         (version: "0.8")
         (author: "Adam S. <adam.stepan@firma.seznam.cz>")
-        (about: "Displays information about ELF files")
+        (about: "Display information about ELF files")
         (@arg all: -a --all "Equivalent to: -h -l -S -s -d -V -i")
         (@arg ("file-header"): -h --("file-header") "Display the ELF file header")
         (@arg interpret: -i --interpret "Display data of .interp section")
