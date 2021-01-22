@@ -1,5 +1,5 @@
-use clap::clap_app;
 use byteorder::{LittleEndian, ReadBytesExt};
+use clap::clap_app;
 use std::fmt;
 use std::io::prelude::*;
 use std::io::{Cursor, SeekFrom};
@@ -365,7 +365,6 @@ struct Note {
     desc: NoteDesc,
 }
 
-
 // There is multiple note types: core, gnu, linux, other
 #[derive(Debug)]
 enum NoteType {
@@ -460,6 +459,7 @@ enum NoteDesc {
     GnuGoldVersion(String),
     // Program property
     GnuProperty(Vec<u8>),
+    MappedFiles(MappedFiles),
     Unknown(Vec<u8>),
 }
 
@@ -1152,7 +1152,7 @@ impl NoteOwner {
 }
 
 impl Note {
-    fn new(align: u64, reader: &mut Reader) -> Note {
+    fn new(addrsize: u8, align: u64, reader: &mut Reader) -> Note {
         let name_size = reader.read_u32::<LittleEndian>().unwrap();
         let desc_size = reader.read_u32::<LittleEndian>().unwrap();
 
@@ -1180,7 +1180,7 @@ impl Note {
 
         let desc = match owner {
             NoteOwner::Gnu => NoteDesc::gnu(&note_type, desc_),
-            NoteOwner::Core => NoteDesc::core(&note_type, desc_),
+            NoteOwner::Core => NoteDesc::core(&note_type, desc_, addrsize),
             NoteOwner::Unknown => NoteDesc::default(desc_),
         };
 
@@ -1239,22 +1239,87 @@ impl NoteType {
 
         match value {
             1 => Version,
-            _ => NoteType::Unknown(value)
+            _ => NoteType::Unknown(value),
         }
     }
 }
 
+#[derive(Debug)]
 struct MappedFile {
     start: u64,
     end: u64,
     page_offset: u64,
-    filename: String
+    filename: String,
 }
 
+#[derive(Debug)]
 struct MappedFiles {
-    count: usize,
-    pagesize: usize,
+    count: u64,
+    pagesize: u64,
     files: Vec<MappedFile>,
+}
+
+impl MappedFiles {
+    fn new(data: Vec<u8>, addrsize: u8) -> MappedFiles {
+        let readaddr = |reader: &mut Reader| match addrsize {
+            4 => reader.read_u32::<LittleEndian>().unwrap() as u64,
+            8 => reader.read_u64::<LittleEndian>().unwrap(),
+            _ => panic!("invalid addrsize: {}", addrsize),
+        };
+
+        let read_filenames = |reader: &mut Reader, count: u64, addrsize: u64| {
+            let mut result = Vec::new();
+            let mut buffer = [0; 1];
+            let mut current = String::new();
+
+            let start = (2 * addrsize) + // count + pagesize items
+                        (count * 3 * addrsize); // start, end, offset for each mapped file
+
+            reader.seek(SeekFrom::Start(start)).unwrap();
+            for _ in 0..count {
+                // read name until we read null byte
+                loop {
+                    reader.read_exact(&mut buffer).unwrap();
+
+                    if buffer[0] == 0 {
+                        break;
+                    }
+
+                    current.push(buffer[0] as char);
+                }
+
+                result.push(current.clone());
+                current.clear();
+            }
+            result
+        };
+
+        let mut reader = Cursor::new(data);
+
+        let count = readaddr(&mut reader);
+        let pagesize = readaddr(&mut reader);
+
+        let start = reader.position();
+        let filenames = read_filenames(&mut reader, count, addrsize as u64);
+
+        reader.seek(SeekFrom::Start(start)).unwrap();
+
+        let mut files = Vec::new();
+        for idx in 0..count {
+            files.push(MappedFile {
+                start: readaddr(&mut reader),
+                end: readaddr(&mut reader),
+                page_offset: readaddr(&mut reader),
+                filename: filenames.get(idx as usize).unwrap().clone(),
+            });
+        }
+
+        MappedFiles {
+            count,
+            pagesize,
+            files,
+        }
+    }
 }
 
 impl NoteDesc {
@@ -1283,8 +1348,11 @@ impl NoteDesc {
         }
     }
 
-    fn core(value: &NoteType, data: Vec<u8>) -> NoteDesc {
-        NoteDesc::Unknown(data)
+    fn core(value: &NoteType, data: Vec<u8>, addrsize: u8) -> NoteDesc {
+        match value {
+            NoteType::MappedFiles => NoteDesc::MappedFiles(MappedFiles::new(data, addrsize)),
+            _ => NoteDesc::Unknown(data),
+        }
     }
 
     fn default(data: Vec<u8>) -> NoteDesc {
@@ -1308,6 +1376,7 @@ impl NoteOs {
 
 impl NoteSection {
     fn new_from_file(
+        addrsize: u8,
         offset: u64,
         size: u64,
         align: u64,
@@ -1322,7 +1391,7 @@ impl NoteSection {
         while pos < size {
             reader.seek(SeekFrom::Start(offset + pos)).unwrap();
 
-            let note = Note::new(align, &mut reader);
+            let note = Note::new(addrsize, align, &mut reader);
             pos += note_next_offset(note.name_size.into(), note.desc_size.into(), align);
 
             // last entry
@@ -1339,18 +1408,20 @@ impl NoteSection {
         }
     }
 
-    fn new_from_core(header: &ProgramHeader, reader: &mut Reader) -> NoteSection {
+    fn new_from_core(addrsize: u8, header: &ProgramHeader, reader: &mut Reader) -> NoteSection {
         NoteSection::new_from_file(
+            addrsize,
             header.p_offset,
             header.p_filesz,
             header.p_align,
-            None,
+            Some("Note program header".into()),
             reader,
         )
     }
 
-    fn new(header: &SectionHeader, name: String, reader: &mut Reader) -> NoteSection {
+    fn new(addrsize: u8, header: &SectionHeader, name: String, reader: &mut Reader) -> NoteSection {
         NoteSection::new_from_file(
+            addrsize,
             header.sh_offset,
             header.sh_size,
             header.sh_addralign,
@@ -1362,6 +1433,7 @@ impl NoteSection {
 
 impl NoteSections {
     fn new(
+        addrsize: u8,
         headers: &SectionHeaders,
         prheaders: &ProgramHeaders,
         reader: &mut Reader,
@@ -1370,13 +1442,13 @@ impl NoteSections {
 
         for header in &headers.get_all(SectionHeaderType::Note) {
             let name = headers.strtab.get(header.sh_name as u64);
-            data.push(NoteSection::new(&header, name, reader));
+            data.push(NoteSection::new(addrsize, &header, name, reader));
         }
 
         // try to parse notes from program headers
         if data.len() == 0 {
             for prheader in &prheaders.get_all(SegmentType::Note) {
-                data.push(NoteSection::new_from_core(&prheader, reader));
+                data.push(NoteSection::new_from_core(addrsize, &prheader, reader));
             }
         }
 
@@ -1692,10 +1764,8 @@ impl fmt::Display for NoteSection {
                 note.desc_size,
                 format!("{:?}", note.note_type)
             )?;
-            writeln!(f, "{}", format!("{:?}", note.desc))?;
+            write!(f, "{}", note.desc)?;
         }
-
-        writeln!(f, "")?;
 
         Ok(())
     }
@@ -1715,6 +1785,31 @@ impl fmt::Display for DynamicSection {
             }
 
             writeln!(f, "")?;
+        }
+        Ok(())
+    }
+}
+
+
+impl fmt::Display for NoteDesc {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use NoteDesc::*;
+
+        match &self {
+            ElfNoteAbi {os, major, minor, patch} => {
+                writeln!(f, "  OS: {:?} {}.{}.{}", os, major, minor, patch)?;
+            },
+            GnuBuildID(id) => writeln!(f, "  BuildID: {}", id)?,
+            MappedFiles(files) => {
+                writeln!(f, "  Page size: {}", files.pagesize)?;
+                writeln!(f, "  {:<16} {:<16} {:<16} {:<16}", "Start", "End", "PageOffset", "Path")?;
+                for file in &files.files {
+                    writeln!(f, "  {:#016x} {:#016x} {:#016x} {}", file.start, file.end, file.page_offset, file.filename)?;
+                }
+
+            },
+            _ => {},
         }
         Ok(())
     }
@@ -2400,7 +2495,12 @@ fn main() {
     }
 
     if display.notes {
-        println!("{}", NoteSections::new(&sh, &ph, &mut reader));
+        let addrsize = match fh.e_class {
+            FileClass::ElfClass64 => 8,
+            FileClass::ElfClass32 => 4,
+            _ => panic!("Unable to determine elf file class"),
+        };
+        println!("{}", NoteSections::new(addrsize, &sh, &ph, &mut reader));
     }
 
     if display.dynamic {
