@@ -88,10 +88,10 @@ struct DisplayOptions {
 fn main() -> Result<(), Error> {
     use std::fs::File;
 
-    let display = DisplayOptions::from_args();
+    let options = DisplayOptions::from_args();
 
-    let mut file = File::open(&display.file)
-        .map_err(|e| format!("Unable to open file: {:?}: {}",  display.file, e))?;
+    let mut file = File::open(&options.file)
+        .map_err(|e| format!("Unable to open file: {:?}: {}",  options.file, e))?;
 
     let mut buffer = Vec::new();
 
@@ -106,27 +106,27 @@ fn main() -> Result<(), Error> {
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
 
-    if display.file_header || display.all {
+    if options.file_header || options.all {
         println!("{}", fh);
     }
 
-    if display.program_headers || display.all {
+    if options.program_headers || options.all {
         println!("{}", ph);
     }
 
-    if display.section_headers || display.all {
+    if options.section_headers || options.all {
         println!("{}", sh);
     }
 
-    if display.interpret || display.all {
+    if options.interpret || options.all {
         println!("{}", Interpret::new(&ph, &mut reader));
     }
 
-    if display.symbols || display.all {
+    if options.symbols || options.all {
         println!("{}", SymbolTables::new(&sh, &mut reader));
     }
 
-    if display.notes || display.all {
+    if options.notes || options.all {
         let addrsize = match fh.e_class {
             FileClass::ElfClass64 => 8,
             FileClass::ElfClass32 => 4,
@@ -135,7 +135,7 @@ fn main() -> Result<(), Error> {
         println!("{}", NoteSections::new(addrsize, &sh, &ph, &mut reader));
     }
 
-    if display.dynamic || display.all {
+    if options.dynamic || options.all {
         if let Some(dynamic) = DynamicSection::new(&sh, &mut reader) {
             println!("{}", dynamic);
         } else {
@@ -143,7 +143,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    if display.version_info || display.all {
+    if options.version_info || options.all {
         if let Some(version_info) = VersionSection::new(&sh, &mut reader) {
             println!("{}", version_info);
         } else {
@@ -151,7 +151,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    if display.relocs || display.all {
+    if options.relocs || options.all {
         println!("{}", RelocationSections::new(&sh, &mut reader));
     }
 
