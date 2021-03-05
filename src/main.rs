@@ -1,4 +1,5 @@
 mod dynamic;
+mod error;
 mod file;
 mod interpret;
 mod notes;
@@ -10,6 +11,7 @@ mod symbols;
 mod version;
 
 use crate::dynamic::DynamicSection;
+use crate::error::Error;
 use crate::file::{ElfFileHeader, FileClass};
 use crate::interpret::Interpret;
 use crate::notes::NoteSections;
@@ -83,18 +85,13 @@ struct DisplayOptions {
     file: PathBuf,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Error> {
     use std::fs::File;
 
     let display = DisplayOptions::from_args();
 
-    let mut file = File::open(&display.file).map_err(|e| {
-        format!(
-            "Unable to open file: {}: {}",
-            display.file.to_string_lossy(),
-            e
-        )
-    })?;
+    let mut file = File::open(&display.file)
+        .map_err(|e| format!("Unable to open file: {:?}: {}",  display.file, e))?;
 
     let mut buffer = Vec::new();
 
@@ -103,7 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut reader = Cursor::new(buffer);
 
-    let fh = ElfFileHeader::new(&mut reader);
+    let fh = ElfFileHeader::new(&mut reader)
+        .map_err(|e| format!("Unable to parse elf file header: {}", e))?;
+
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
 

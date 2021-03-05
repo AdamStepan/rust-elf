@@ -1,6 +1,9 @@
 use crate::reader::{LittleEndian, ReadBytesExt, Reader};
+use crate::error::{Error, StdError};
 use std::fmt;
 use std::io::Read;
+
+const ELF_MAGIC: [u8; 4] = [0x7f, 'E' as u8, 'L' as u8, 'F' as u8];
 
 fn show_machine(value: u16) -> &'static str {
     match value {
@@ -316,36 +319,62 @@ pub struct ElfFileHeader {
     pub e_shstrndx: u16,
 }
 
-impl ElfFileHeader {
-    pub fn new(reader: &mut Reader) -> ElfFileHeader {
-        // XXX: check magic
-        let mut e_magic: [u8; 4] = [0; 4];
-        reader.read_exact(&mut e_magic).unwrap();
+#[derive(Debug)]
+pub struct ElfMagicMismatchError(String);
 
-        let e_class = FileClass::new(reader.read_u8().unwrap());
-        let e_encoding = Encoding::new(reader.read_u8().unwrap());
-        let e_version_ = reader.read_u8().unwrap();
-        let e_os_abi = OsAbi::new(reader.read_u8().unwrap());
-        let e_os_abi_version = reader.read_u8().unwrap();
+impl ElfMagicMismatchError {
+    pub fn new(magic: [u8; 4]) -> ElfMagicMismatchError {
+        ElfMagicMismatchError (
+            format!("Elf magic mismatch: got: {:02X?}, expected: {:02X?}", magic, ELF_MAGIC)
+        )
+    }
+}
+
+impl StdError for ElfMagicMismatchError {}
+
+impl fmt::Display for ElfMagicMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl ElfFileHeader {
+    pub fn new(reader: &mut Reader) -> Result<ElfFileHeader, Error> {
+        let mut e_magic: [u8; 4] = [0; 4];
+        reader.read_exact(&mut e_magic)?;
+
+        if e_magic[0] != ELF_MAGIC[0]
+            || e_magic[1] != ELF_MAGIC[1]
+            || e_magic[2] != ELF_MAGIC[2]
+            || e_magic[3] != ELF_MAGIC[3]
+        {
+            return Err(Box::new(ElfMagicMismatchError::new(e_magic)))
+        }
+
+        let e_class = FileClass::new(reader.read_u8()?);
+        let e_encoding = Encoding::new(reader.read_u8()?);
+        let e_version_ = reader.read_u8()?;
+        let e_os_abi = OsAbi::new(reader.read_u8()?);
+        let e_os_abi_version = reader.read_u8()?;
 
         let mut e_padding_: [u8; 7] = [0; 7];
-        reader.read_exact(&mut e_padding_).unwrap();
+        reader.read_exact(&mut e_padding_)?;
 
-        let e_type = ObjectType::new(reader.read_u16::<LittleEndian>().unwrap());
-        let e_machine = reader.read_u16::<LittleEndian>().unwrap();
-        let e_version = Version::new(reader.read_u32::<LittleEndian>().unwrap());
-        let e_entry = reader.read_u64::<LittleEndian>().unwrap();
-        let e_phoff = reader.read_u64::<LittleEndian>().unwrap();
-        let e_shoff = reader.read_u64::<LittleEndian>().unwrap();
-        let e_flags = reader.read_u32::<LittleEndian>().unwrap();
-        let e_ehsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_phentsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_phnum = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shentsize = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shnum = reader.read_u16::<LittleEndian>().unwrap();
-        let e_shstrndx = reader.read_u16::<LittleEndian>().unwrap();
+        let e_type = ObjectType::new(reader.read_u16::<LittleEndian>()?);
+        let e_machine = reader.read_u16::<LittleEndian>()?;
+        let e_version = Version::new(reader.read_u32::<LittleEndian>()?);
+        let e_entry = reader.read_u64::<LittleEndian>()?;
+        let e_phoff = reader.read_u64::<LittleEndian>()?;
+        let e_shoff = reader.read_u64::<LittleEndian>()?;
+        let e_flags = reader.read_u32::<LittleEndian>()?;
+        let e_ehsize = reader.read_u16::<LittleEndian>()?;
+        let e_phentsize = reader.read_u16::<LittleEndian>()?;
+        let e_phnum = reader.read_u16::<LittleEndian>()?;
+        let e_shentsize = reader.read_u16::<LittleEndian>()?;
+        let e_shnum = reader.read_u16::<LittleEndian>()?;
+        let e_shstrndx = reader.read_u16::<LittleEndian>()?;
 
-        ElfFileHeader {
+        Ok(ElfFileHeader {
             e_magic,
             e_class,
             e_encoding,
@@ -366,7 +395,7 @@ impl ElfFileHeader {
             e_shentsize,
             e_shnum,
             e_shstrndx,
-        }
+        })
     }
 }
 
