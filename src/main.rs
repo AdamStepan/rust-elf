@@ -83,15 +83,23 @@ struct DisplayOptions {
     file: PathBuf,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::fs::File;
 
     let display = DisplayOptions::from_args();
 
-    let mut file = File::open(display.file).unwrap();
+    let mut file = File::open(&display.file).map_err(|e| {
+        format!(
+            "Unable to open file: {}: {}",
+            display.file.to_string_lossy(),
+            e
+        )
+    })?;
+
     let mut buffer = Vec::new();
 
-    file.read_to_end(&mut buffer).unwrap();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| format!("Unable to read the whole file to buffer: {}", e))?;
 
     let mut reader = Cursor::new(buffer);
 
@@ -147,4 +155,6 @@ fn main() {
     if display.relocs || display.all {
         println!("{}", RelocationSections::new(&sh, &mut reader));
     }
+
+    Ok(())
 }
