@@ -20,59 +20,76 @@ use crate::section::SectionHeaders;
 use crate::symbols::SymbolTables;
 use crate::version::VersionSection;
 use std::io::Read;
+use std::path::PathBuf;
+use structopt::StructOpt;
 
+#[derive(Debug, StructOpt)]
 struct DisplayOptions {
+    #[structopt(
+        short = "a",
+        long = "all",
+        help = "Equivalent to: -h -l -S -s -d -V -i"
+    )]
+    all: bool,
+
+    #[structopt(
+        short = "h",
+        long = "file-header",
+        help = "Display the ELF file header"
+    )]
     file_header: bool,
+
+    #[structopt(
+        short = "l",
+        long = "program-headers",
+        help = "Display the sections' header"
+    )]
     program_headers: bool,
+
+    #[structopt(
+        short = "S",
+        long = "section-headers",
+        help = "Display the section headers"
+    )]
     section_headers: bool,
+
+    #[structopt(short = "s", long = "symbols", help = "Display the symbol table")]
     symbols: bool,
+
+    #[structopt(long = "notes", help = "Display notes")]
     notes: bool,
+
+    #[structopt(short = "d", long = "dynamic", help = "Display the dynamic section")]
     dynamic: bool,
+
+    #[structopt(
+        short = "V",
+        long = "version-info",
+        help = "Display the version sections"
+    )]
     version_info: bool,
+
+    #[structopt(
+        short = "i",
+        long = "interpret",
+        help = "Display data of .interp section"
+    )]
     interpret: bool,
+
+    #[structopt(short = "r", long = "relocs", help = "Display the relocations")]
     relocs: bool,
+
+    #[structopt(parse(from_os_str))]
+    file: PathBuf,
 }
 
 fn main() {
-    use clap::clap_app;
     use std::fs::File;
 
-    let matches = clap_app!(readelf =>
-        (version: "0.8")
-        (author: "Adam S. <adam.stepan@firma.seznam.cz>")
-        (about: "Display information about ELF files")
-        (@arg all: -a --all "Equivalent to: -h -l -S -s -d -V -i")
-        (@arg ("file-header"): -h --("file-header") "Display the ELF file header")
-        (@arg interpret: -i --interpret "Display data of .interp section")
-        (@arg ("program-headers"): -l --("program-headers") "Display the program headers")
-        (@arg ("section-headers"): -S --("section-headers") "Display the sections' header")
-        (@arg symbols: -s --("symbols") "Display the symbol table")
-        (@arg notes: --notes "Display notes")
-        (@arg dynamic: -d --dynamic "Display the dynamic section")
-        (@arg ("version-info"): -V --("version-info") "Display the version sections")
-        (@arg relocs: -r --relocs "Display the relocations")
-        (@arg file: +required "elf-file")
-    )
-    .get_matches();
+    let display = DisplayOptions::from_args();
 
-    let filename = matches.value_of("file").unwrap();
-
-    let mut file = File::open(filename).unwrap();
+    let mut file = File::open(display.file).unwrap();
     let mut buffer = Vec::new();
-
-    let all = matches.is_present("all");
-
-    let display = DisplayOptions {
-        file_header: matches.is_present("file-header") || all,
-        interpret: matches.is_present("interpret") || all,
-        program_headers: matches.is_present("program-headers") || all,
-        section_headers: matches.is_present("section-headers") || all,
-        symbols: matches.is_present("symbols") || all,
-        notes: matches.is_present("notes") || all,
-        dynamic: matches.is_present("dynamic") || all,
-        version_info: matches.is_present("version-info") || all,
-        relocs: matches.is_present("relocs"), // ignore all for now
-    };
 
     file.read_to_end(&mut buffer).unwrap();
 
@@ -82,27 +99,27 @@ fn main() {
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
 
-    if display.file_header {
+    if display.file_header || display.all {
         println!("{}", fh);
     }
 
-    if display.program_headers {
+    if display.program_headers || display.all {
         println!("{}", ph);
     }
 
-    if display.section_headers {
+    if display.section_headers || display.all {
         println!("{}", sh);
     }
 
-    if display.interpret {
+    if display.interpret || display.all {
         println!("{}", Interpret::new(&ph, &mut reader));
     }
 
-    if display.symbols {
+    if display.symbols || display.all {
         println!("{}", SymbolTables::new(&sh, &mut reader));
     }
 
-    if display.notes {
+    if display.notes || display.all {
         let addrsize = match fh.e_class {
             FileClass::ElfClass64 => 8,
             FileClass::ElfClass32 => 4,
@@ -111,7 +128,7 @@ fn main() {
         println!("{}", NoteSections::new(addrsize, &sh, &ph, &mut reader));
     }
 
-    if display.dynamic {
+    if display.dynamic || display.all {
         if let Some(dynamic) = DynamicSection::new(&sh, &mut reader) {
             println!("{}", dynamic);
         } else {
@@ -119,7 +136,7 @@ fn main() {
         }
     }
 
-    if display.version_info {
+    if display.version_info || display.all {
         if let Some(version_info) = VersionSection::new(&sh, &mut reader) {
             println!("{}", version_info);
         } else {
@@ -127,7 +144,7 @@ fn main() {
         }
     }
 
-    if display.relocs {
+    if display.relocs || display.all {
         println!("{}", RelocationSections::new(&sh, &mut reader));
     }
 }
