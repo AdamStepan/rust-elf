@@ -11,7 +11,6 @@ mod symbols;
 mod version;
 
 use crate::dynamic::DynamicSection;
-use crate::error::Error;
 use crate::file::{ElfFileHeader, FileClass};
 use crate::interpret::Interpret;
 use crate::notes::NoteSections;
@@ -24,6 +23,7 @@ use crate::version::VersionSection;
 use std::io::Read;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use anyhow::{Result, Context, bail};
 
 #[derive(Debug, StructOpt)]
 struct DisplayOptions {
@@ -85,23 +85,24 @@ struct DisplayOptions {
     file: PathBuf,
 }
 
-fn main() -> Result<(), Error> {
+
+fn main() -> Result<()> {
     use std::fs::File;
 
     let options = DisplayOptions::from_args();
 
     let mut file = File::open(&options.file)
-        .map_err(|e| format!("Unable to open file: {:?}: {}",  options.file, e))?;
+        .context(format!("Unable to open file: {:?}", options.file))?;
 
     let mut buffer = Vec::new();
 
     file.read_to_end(&mut buffer)
-        .map_err(|e| format!("Unable to read the whole file to buffer: {}", e))?;
+        .context("Unable to read the whole file to buffer")?;
 
     let mut reader = Cursor::new(buffer);
 
     let fh = ElfFileHeader::new(&mut reader)
-        .map_err(|e| format!("Unable to parse elf file header: {}", e))?;
+        .context("Unable to parse elf file header")?;
 
     let ph = ProgramHeaders::new(&fh, &mut reader);
     let sh = SectionHeaders::new(&fh, &mut reader);
@@ -130,7 +131,7 @@ fn main() -> Result<(), Error> {
         let addrsize = match fh.e_class {
             FileClass::ElfClass64 => 8,
             FileClass::ElfClass32 => 4,
-            _ => panic!("Unable to determine elf file class"),
+            _ => bail!("Unable to determine elf file class"),
         };
         println!("{}", NoteSections::new(addrsize, &sh, &ph, &mut reader));
     }

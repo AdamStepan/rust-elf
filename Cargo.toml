@@ -10,3 +10,5 @@ description = "Utility that can display information about content of ELF files"
 byteorder = { version = "1" }
 structopt = { version = "0.3", features = [ "paw" ] }
 paw = "1.0"
+thiserror = "1.0"
+anyhow = "1.0"

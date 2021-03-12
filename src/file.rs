@@ -1,7 +1,7 @@
 use crate::reader::{LittleEndian, ReadBytesExt, Reader};
-use crate::error::{Error, StdError};
 use std::fmt;
 use std::io::Read;
+use thiserror::Error;
 
 const ELF_MAGIC: [u8; 4] = [0x7f, 'E' as u8, 'L' as u8, 'F' as u8];
 
@@ -319,23 +319,15 @@ pub struct ElfFileHeader {
     pub e_shstrndx: u16,
 }
 
-#[derive(Debug)]
-pub struct ElfMagicMismatchError(String);
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Elf magic mismatch: got: {:02X?}, expected: {:02X?}", magic, ELF_MAGIC)]
+    ElfMagicMismatchError {
+        magic: [u8; 4]
+    },
 
-impl ElfMagicMismatchError {
-    pub fn new(magic: [u8; 4]) -> ElfMagicMismatchError {
-        ElfMagicMismatchError (
-            format!("Elf magic mismatch: got: {:02X?}, expected: {:02X?}", magic, ELF_MAGIC)
-        )
-    }
-}
-
-impl StdError for ElfMagicMismatchError {}
-
-impl fmt::Display for ElfMagicMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
 }
 
 impl ElfFileHeader {
@@ -348,7 +340,7 @@ impl ElfFileHeader {
             || e_magic[2] != ELF_MAGIC[2]
             || e_magic[3] != ELF_MAGIC[3]
         {
-            return Err(Box::new(ElfMagicMismatchError::new(e_magic)))
+            return Err(Error::ElfMagicMismatchError { magic: e_magic });
         }
 
         let e_class = FileClass::new(reader.read_u8()?);
