@@ -3,7 +3,7 @@ use std::fmt;
 use std::io::Read;
 use thiserror::Error;
 
-const ELF_MAGIC: [u8; 4] = [0x7f, 'E' as u8, 'L' as u8, 'F' as u8];
+const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 
 fn show_machine(value: u16) -> &'static str {
     match value {

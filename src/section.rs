@@ -221,7 +221,7 @@ impl SectionHeaders {
 
             let name = self.strtab.get(header.sh_name as u64);
 
-            if name != String::from(".dynstr") {
+            if name != *".dynstr" {
                 continue;
             }
 
@@ -242,8 +242,8 @@ impl fmt::Display for SectionHeaders {
         )?;
         writeln!(
             f,
-            "     {:<16} {:<16} {:<5} {} {}  {:<8}",
-            "Size", "EntSize", "Flags", "Link", "Info", "Align"
+            "     {:<16} {:<16} {:<5} Link Info  {:<8}",
+            "Size", "EntSize", "Flags", "Align"
         )?;
 
         for (i, header) in self.headers.iter().enumerate() {
@@ -270,6 +270,6 @@ impl fmt::Display for SectionHeaders {
             )?;
         }
 
-        return Ok(());
+        Ok(())
     }
 }

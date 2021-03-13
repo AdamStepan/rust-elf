@@ -447,8 +447,8 @@ impl NoteSection {
         }
 
         Ok(NoteSection {
-            data: data,
-            name: name.unwrap_or("".to_string()),
+            data,
+            name: name.unwrap_or_else(|| "".to_string()),
         })
     }
 
@@ -495,7 +495,7 @@ impl NoteSections {
         }
 
         // try to parse notes from program headers
-        if data.len() == 0 {
+        if data.is_empty() {
             for prheader in &prheaders.get_all(SegmentType::Note) {
                 data.push(NoteSection::new_from_core(addrsize, &prheader, reader)?);
             }

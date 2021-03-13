@@ -203,7 +203,7 @@ impl DynamicSection {
         let strtab = StringTable::new(&strtab_header, &mut reader);
 
         Ok(Some(DynamicSection {
-            strtab: strtab,
+            strtab,
             data: entries,
         }))
     }
@@ -222,7 +222,7 @@ impl fmt::Display for DynamicSection {
                 write!(f, " ({})", name)?;
             }
 
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
         Ok(())
     }

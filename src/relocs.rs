@@ -158,9 +158,9 @@ impl RelocationSection {
         }
 
         RelocationSection {
-            symtab: symtab,
-            name: name,
-            entries: entries,
+            symtab,
+            name,
+            entries,
             kind: header.sh_type.clone(),
         }
     }
@@ -192,7 +192,7 @@ impl fmt::Display for RelocationSections {
 
         for section in &self.sections {
             result = section.fmt(f);
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
         result
     }

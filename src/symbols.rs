@@ -217,8 +217,8 @@ impl SymbolTable {
         let name = headers.strtab.get(header.sh_name as u64);
 
         SymbolTable {
-            data: data,
-            name: name,
+            data,
+            name,
             strtab: StringTable::new(&strtab, reader),
             symsize: header.sh_entsize as usize,
         }
@@ -254,7 +254,7 @@ impl fmt::Display for SymbolTables {
 
         for symtab in &self.data {
             result = symtab.fmt(f);
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
         result
     }
@@ -270,8 +270,8 @@ impl fmt::Display for SymbolTable {
         )?;
         writeln!(
             f,
-            "{:<6} {:<16} {:<8} {:<8} {:<6} {:<9} {:<3} {}",
-            "Num", "Value", "Size", "Type", "Bind", "Vis", "Ndx", "Name"
+            "{:<6} {:<16} {:<8} {:<8} {:<6} {:<9} {:<3} Name",
+            "Num", "Value", "Size", "Type", "Bind", "Vis", "Ndx"
         )?;
 
         for (i, sym) in self.data.iter().enumerate() {
