@@ -1,6 +1,7 @@
 use crate::reader::{LittleEndian, ReadBytesExt, Reader, Seek, SeekFrom};
 use crate::section::{SectionHeaderType, SectionHeaders};
 use crate::symbols::StringTable;
+use anyhow::{Result, Context};
 use std::fmt;
 
 #[derive(Debug)]
@@ -49,20 +50,26 @@ pub struct VersionSection {
 }
 
 impl VersionNeed {
-    fn new(reader: &mut Reader) -> VersionNeed {
-        VersionNeed {
-            version: reader.read_u16::<LittleEndian>().unwrap(),
-            aux_count: reader.read_u16::<LittleEndian>().unwrap(),
-            file_offset: reader.read_u32::<LittleEndian>().unwrap(),
-            aux_offset: reader.read_u32::<LittleEndian>().unwrap(),
-            next_offset: reader.read_u32::<LittleEndian>().unwrap(),
-        }
+    fn new(reader: &mut Reader) -> Result<VersionNeed> {
+        Ok(VersionNeed {
+            version: reader.read_u16::<LittleEndian>()?,
+            aux_count: reader.read_u16::<LittleEndian>()?,
+            file_offset: reader.read_u32::<LittleEndian>()?,
+            aux_offset: reader.read_u32::<LittleEndian>()?,
+            next_offset: reader.read_u32::<LittleEndian>()?,
+        })
     }
 }
 
 impl VersionSection {
-    pub fn new(headers: &SectionHeaders, reader: &mut Reader) -> Option<VersionSection> {
-        let header = headers.get(SectionHeaderType::GnuVerNeed)?;
+    pub fn new(headers: &SectionHeaders, reader: &mut Reader) -> Result<Option<VersionSection>> {
+
+        if headers.get(SectionHeaderType::GnuVerNeed).is_none() {
+            return Ok(None);
+        }
+
+        let header = headers.get(SectionHeaderType::GnuVerNeed)
+                            .context("Unable to get version section")?;
 
         let mut offset: u64 = 0;
         let mut data: Vec<(Vec<VersionAux>, VersionNeed)> = vec![];
@@ -75,16 +82,15 @@ impl VersionSection {
                 .seek(SeekFrom::Start(header.sh_offset + offset))
                 .unwrap();
 
-            let verneed = VersionNeed::new(reader);
+            let verneed = VersionNeed::new(reader)?;
             let mut aux_offset: u64 = verneed.aux_offset as u64;
             let mut i = 0;
 
             while i < verneed.aux_count {
                 reader
-                    .seek(SeekFrom::Start(header.sh_offset + offset + aux_offset))
-                    .unwrap();
+                    .seek(SeekFrom::Start(header.sh_offset + offset + aux_offset))?;
 
-                let au = VersionAux::new(reader);
+                let au = VersionAux::new(reader)?;
 
                 aux_offset += au.next as u64;
                 aux.push(au);
@@ -98,21 +104,22 @@ impl VersionSection {
             cnt += 1;
         }
 
-        let strtab = headers.dynstr(reader).unwrap();
+        let strtab = headers.dynstr(reader)
+                            .context("Unable to load get dynamic string")?;
         let name = headers.strtab.get(header.sh_name as u64);
 
-        Some(VersionSection { data, strtab, name })
+        Ok(Some(VersionSection { data, strtab, name }))
     }
 }
 impl VersionAux {
-    fn new(reader: &mut Reader) -> VersionAux {
-        VersionAux {
-            hash: reader.read_u32::<LittleEndian>().unwrap(),
-            flags: VersionAuxFlags::new(reader.read_u16::<LittleEndian>().unwrap()),
-            other: reader.read_u16::<LittleEndian>().unwrap(),
-            name: reader.read_u32::<LittleEndian>().unwrap(),
-            next: reader.read_u32::<LittleEndian>().unwrap(),
-        }
+    fn new(reader: &mut Reader) -> Result<VersionAux> {
+        Ok(VersionAux {
+            hash: reader.read_u32::<LittleEndian>()?,
+            flags: VersionAuxFlags::new(reader.read_u16::<LittleEndian>()?),
+            other: reader.read_u16::<LittleEndian>()?,
+            name: reader.read_u32::<LittleEndian>()?,
+            next: reader.read_u32::<LittleEndian>()?,
+        })
     }
 }
 

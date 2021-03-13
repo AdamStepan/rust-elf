@@ -9,21 +9,12 @@ mod relocs;
 mod section;
 mod symbols;
 mod version;
+mod elf;
 
-use crate::dynamic::DynamicSection;
-use crate::file::{ElfFileHeader, FileClass};
-use crate::interpret::Interpret;
-use crate::notes::NoteSections;
-use crate::program::ProgramHeaders;
-use crate::reader::Cursor;
-use crate::relocs::RelocationSections;
-use crate::section::SectionHeaders;
-use crate::symbols::SymbolTables;
-use crate::version::VersionSection;
-use std::io::Read;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use anyhow::{Result, Context, bail};
+use anyhow::Result;
+use elf::Elf;
 
 #[derive(Debug, StructOpt)]
 struct DisplayOptions {
@@ -86,74 +77,46 @@ struct DisplayOptions {
 }
 
 
+
 fn main() -> Result<()> {
-    use std::fs::File;
 
     let options = DisplayOptions::from_args();
-
-    let mut file = File::open(&options.file)
-        .context(format!("Unable to open file: {:?}", options.file))?;
-
-    let mut buffer = Vec::new();
-
-    file.read_to_end(&mut buffer)
-        .context("Unable to read the whole file to buffer")?;
-
-    let mut reader = Cursor::new(buffer);
-
-    let fh = ElfFileHeader::new(&mut reader)
-        .context("Unable to parse elf file header")?;
-
-    let ph = ProgramHeaders::new(&fh, &mut reader);
-    let sh = SectionHeaders::new(&fh, &mut reader);
+    let elf = Elf::new(options.file)?;
 
     if options.file_header || options.all {
-        println!("{}", fh);
+        elf.show_file_header()?;
     }
 
     if options.program_headers || options.all {
-        println!("{}", ph);
+        elf.show_program_headers()?;
     }
 
     if options.section_headers || options.all {
-        println!("{}", sh);
+        elf.show_section_headers()?;
     }
 
     if options.interpret || options.all {
-        println!("{}", Interpret::new(&ph, &mut reader));
+        elf.show_interpret()?;
     }
 
     if options.symbols || options.all {
-        println!("{}", SymbolTables::new(&sh, &mut reader));
-    }
-
-    if options.notes || options.all {
-        let addrsize = match fh.e_class {
-            FileClass::ElfClass64 => 8,
-            FileClass::ElfClass32 => 4,
-            _ => bail!("Unable to determine elf file class"),
-        };
-        println!("{}", NoteSections::new(addrsize, &sh, &ph, &mut reader));
+        elf.show_symbols()?;
     }
 
     if options.dynamic || options.all {
-        if let Some(dynamic) = DynamicSection::new(&sh, &mut reader) {
-            println!("{}", dynamic);
-        } else {
-            println!("There is no dynamic section in this file\n");
-        }
+        elf.show_dynamic()?;
+    }
+
+    if options.notes || options.all {
+        elf.show_notes()?;
     }
 
     if options.version_info || options.all {
-        if let Some(version_info) = VersionSection::new(&sh, &mut reader) {
-            println!("{}", version_info);
-        } else {
-            println!("No version information found in this file\n");
-        }
+        elf.show_version_info()?;
     }
 
     if options.relocs || options.all {
-        println!("{}", RelocationSections::new(&sh, &mut reader));
+        elf.show_relocs()?;
     }
 
     Ok(())

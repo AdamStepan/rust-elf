@@ -1,5 +1,6 @@
 use crate::reader::{LittleEndian, ReadBytesExt, Reader, Seek, SeekFrom};
 use crate::section::{SectionHeaderType, SectionHeaders};
+use anyhow::{Result, Context};
 use crate::symbols::StringTable;
 use std::fmt;
 
@@ -111,11 +112,11 @@ pub struct DynamicSection {
 }
 
 impl DynamicEntry {
-    fn new(reader: &mut Reader) -> DynamicEntry {
-        let tag = DynamicEntryTag::new(reader.read_u64::<LittleEndian>().unwrap());
-        let value = reader.read_u64::<LittleEndian>().unwrap();
+    fn new(reader: &mut Reader) -> Result<DynamicEntry> {
+        let tag = DynamicEntryTag::new(reader.read_u64::<LittleEndian>()?);
+        let value = reader.read_u64::<LittleEndian>()?;
 
-        DynamicEntry { tag, value }
+        Ok(DynamicEntry { tag, value })
     }
 }
 
@@ -174,16 +175,22 @@ impl DynamicEntryTag {
 }
 
 impl DynamicSection {
-    pub fn new(headers: &SectionHeaders, mut reader: &mut Reader) -> Option<DynamicSection> {
-        let header = headers.get(SectionHeaderType::Dynamic)?;
+    pub fn new(headers: &SectionHeaders, mut reader: &mut Reader) -> Result<Option<DynamicSection>> {
 
-        reader.seek(SeekFrom::Start(header.sh_offset)).unwrap();
+        if headers.get(SectionHeaderType::Dynamic).is_none() {
+            return Ok(None);
+        }
+
+        let header = headers.get(SectionHeaderType::Dynamic)
+                            .context("Unable to get dynamic sections")?;
+
+        reader.seek(SeekFrom::Start(header.sh_offset))?;
         // read all dyn entries and string table address and size
         let mut entries: Vec<DynamicEntry> = vec![];
 
         // read entries until you get DT_NULL terminator
         loop {
-            let entry = DynamicEntry::new(reader);
+            let entry = DynamicEntry::new(reader)?;
 
             entries.push(entry);
 
@@ -195,10 +202,10 @@ impl DynamicSection {
         let strtab_header = headers.get_by_index(header.sh_link as usize);
         let strtab = StringTable::new(&strtab_header, &mut reader);
 
-        Some(DynamicSection {
+        Ok(Some(DynamicSection {
             strtab: strtab,
             data: entries,
-        })
+        }))
     }
 }
 

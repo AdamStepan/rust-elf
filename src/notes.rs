@@ -2,7 +2,7 @@ use crate::program::{ProgramHeader, ProgramHeaders, SegmentType};
 use crate::reader::{Cursor, LittleEndian, ReadBytesExt, Reader, Seek, SeekFrom};
 use crate::section::{SectionHeader, SectionHeaderType, SectionHeaders};
 use std::io::Read;
-
+use anyhow::{Result, Context, bail};
 use std::fmt;
 
 fn align_up(size: u64, align: u64) -> u64 {
@@ -207,24 +207,24 @@ impl NoteOwner {
 }
 
 impl Note {
-    pub fn new(addrsize: u8, align: u64, reader: &mut Reader) -> Note {
-        let name_size = reader.read_u32::<LittleEndian>().unwrap();
-        let desc_size = reader.read_u32::<LittleEndian>().unwrap();
+    pub fn new(addrsize: u8, align: u64, reader: &mut Reader) -> Result<Note> {
+        let name_size = reader.read_u32::<LittleEndian>()?;
+        let desc_size = reader.read_u32::<LittleEndian>()?;
 
-        let type_ = reader.read_u32::<LittleEndian>().unwrap();
+        let type_ = reader.read_u32::<LittleEndian>()?;
 
         let mut name_ = vec![0; name_size as usize];
-        reader.read_exact(&mut name_).unwrap();
+        reader.read_exact(&mut name_)?;
 
         let cur = name_size + ELF_NOTE_SIZE as u32;
         let off = note_desc_offset(name_size.into(), align) - cur as u64;
 
-        reader.seek(SeekFrom::Current(off as i64)).unwrap();
+        reader.seek(SeekFrom::Current(off as i64))?;
 
         let mut desc_ = vec![0; desc_size as usize];
-        reader.read_exact(&mut desc_).unwrap();
+        reader.read_exact(&mut desc_)?;
 
-        let name = String::from_utf8(name_).unwrap();
+        let name = String::from_utf8(name_)?;
         let owner = NoteOwner::new(&name);
 
         let note_type = match owner {
@@ -235,17 +235,17 @@ impl Note {
 
         let desc = match owner {
             NoteOwner::Gnu => NoteDesc::gnu(&note_type, desc_),
-            NoteOwner::Core => NoteDesc::core(&note_type, desc_, addrsize),
+            NoteOwner::Core => NoteDesc::core(&note_type, desc_, addrsize)?,
             NoteOwner::Unknown => NoteDesc::default(desc_),
         };
 
-        Note {
+        Ok(Note {
             name_size,
             desc_size,
             note_type,
             name,
             desc,
-        }
+        })
     }
 }
 
@@ -299,66 +299,70 @@ impl NoteType {
     }
 }
 
-impl MappedFiles {
-    fn new(data: Vec<u8>, addrsize: u8) -> MappedFiles {
-        let readaddr = |reader: &mut Reader| match addrsize {
-            4 => reader.read_u32::<LittleEndian>().unwrap() as u64,
-            8 => reader.read_u64::<LittleEndian>().unwrap(),
-            _ => panic!("invalid addrsize: {}", addrsize),
-        };
+fn read_filenames(reader: &mut Reader, count: u64, addrsize: u64) -> Result<Vec<String>> {
+    let mut result = Vec::new();
+    let mut buffer = [0; 1];
+    let mut current = String::new();
 
-        let read_filenames = |reader: &mut Reader, count: u64, addrsize: u64| {
-            let mut result = Vec::new();
-            let mut buffer = [0; 1];
-            let mut current = String::new();
+    let start = (2 * addrsize) + // count + pagesize items
+                (count * 3 * addrsize); // start, end, offset for each mapped file
 
-            let start = (2 * addrsize) + // count + pagesize items
-                        (count * 3 * addrsize); // start, end, offset for each mapped file
+    reader.seek(SeekFrom::Start(start))?;
+    for _ in 0..count {
+        // read name until we read null byte
+        loop {
+            reader.read_exact(&mut buffer)?;
 
-            reader.seek(SeekFrom::Start(start)).unwrap();
-            for _ in 0..count {
-                // read name until we read null byte
-                loop {
-                    reader.read_exact(&mut buffer).unwrap();
-
-                    if buffer[0] == 0 {
-                        break;
-                    }
-
-                    current.push(buffer[0] as char);
-                }
-
-                result.push(current.clone());
-                current.clear();
+            if buffer[0] == 0 {
+                break;
             }
-            result
+
+            current.push(buffer[0] as char);
+        }
+
+        result.push(current.clone());
+        current.clear();
+    }
+    Ok(result)
+}
+
+impl MappedFiles {
+
+    fn new(data: Vec<u8>, addrsize: u8) -> Result<MappedFiles> {
+        let readaddr = |reader: &mut Reader| -> Result<u64> {
+            match addrsize {
+                4 => Ok(reader.read_u32::<LittleEndian>()? as u64),
+                8 => Ok(reader.read_u64::<LittleEndian>()?),
+                _ => bail!("invalid addrsize: {}", addrsize),
+            }
         };
 
         let mut reader = Cursor::new(data);
 
-        let count = readaddr(&mut reader);
-        let pagesize = readaddr(&mut reader);
+        let count = readaddr(&mut reader)?;
+        let pagesize = readaddr(&mut reader)?;
 
         let start = reader.position();
-        let filenames = read_filenames(&mut reader, count, addrsize as u64);
+        let filenames = read_filenames(&mut reader, count, addrsize as u64)?;
 
-        reader.seek(SeekFrom::Start(start)).unwrap();
+        reader.seek(SeekFrom::Start(start))?;
 
         let mut files = Vec::new();
         for idx in 0..count {
             files.push(MappedFile {
-                start: readaddr(&mut reader),
-                end: readaddr(&mut reader),
-                page_offset: readaddr(&mut reader),
-                filename: filenames.get(idx as usize).unwrap().clone(),
+                start: readaddr(&mut reader)?,
+                end: readaddr(&mut reader)?,
+                page_offset: readaddr(&mut reader)?,
+                filename: filenames.get(idx as usize)
+                                   .context("Unable to find filename")?.clone(),
             });
         }
 
-        MappedFiles {
+        Ok(MappedFiles {
             count,
             pagesize,
             files,
-        }
+        })
     }
 }
 
@@ -388,10 +392,10 @@ impl NoteDesc {
         }
     }
 
-    fn core(value: &NoteType, data: Vec<u8>, addrsize: u8) -> NoteDesc {
+    fn core(value: &NoteType, data: Vec<u8>, addrsize: u8) -> Result<NoteDesc> {
         match value {
-            NoteType::MappedFiles => NoteDesc::MappedFiles(MappedFiles::new(data, addrsize)),
-            _ => NoteDesc::Unknown(data),
+            NoteType::MappedFiles => Ok(NoteDesc::MappedFiles(MappedFiles::new(data, addrsize)?)),
+            _ => Ok(NoteDesc::Unknown(data)),
         }
     }
 
@@ -422,16 +426,16 @@ impl NoteSection {
         align: u64,
         name: Option<String>,
         mut reader: &mut Reader,
-    ) -> NoteSection {
-        reader.seek(SeekFrom::Start(offset)).unwrap();
+    ) -> Result<NoteSection> {
+        reader.seek(SeekFrom::Start(offset))?;
 
         let mut data = vec![];
         let mut pos: u64 = 0;
 
         while pos < size {
-            reader.seek(SeekFrom::Start(offset + pos)).unwrap();
+            reader.seek(SeekFrom::Start(offset + pos))?;
 
-            let note = Note::new(addrsize, align, &mut reader);
+            let note = Note::new(addrsize, align, &mut reader)?;
             pos += note_next_offset(note.name_size.into(), note.desc_size.into(), align);
 
             // last entry
@@ -442,21 +446,21 @@ impl NoteSection {
             data.push(note);
         }
 
-        NoteSection {
+        Ok(NoteSection {
             data: data,
             name: name.unwrap_or("".to_string()),
-        }
+        })
     }
 
-    pub fn new_from_core(addrsize: u8, header: &ProgramHeader, reader: &mut Reader) -> NoteSection {
-        NoteSection::new_from_file(
+    pub fn new_from_core(addrsize: u8, header: &ProgramHeader, reader: &mut Reader) -> Result<NoteSection> {
+        Ok(NoteSection::new_from_file(
             addrsize,
             header.p_offset,
             header.p_filesz,
             header.p_align,
             Some("Note program header".into()),
             reader,
-        )
+        )?)
     }
 
     pub fn new(
@@ -464,15 +468,15 @@ impl NoteSection {
         header: &SectionHeader,
         name: String,
         reader: &mut Reader,
-    ) -> NoteSection {
-        NoteSection::new_from_file(
+    ) -> Result<NoteSection> {
+        Ok(NoteSection::new_from_file(
             addrsize,
             header.sh_offset,
             header.sh_size,
             header.sh_addralign,
             Some(name),
             reader,
-        )
+        )?)
     }
 }
 
@@ -482,22 +486,22 @@ impl NoteSections {
         headers: &SectionHeaders,
         prheaders: &ProgramHeaders,
         reader: &mut Reader,
-    ) -> NoteSections {
+    ) -> Result<NoteSections> {
         let mut data: Vec<NoteSection> = vec![];
 
         for header in &headers.get_all(SectionHeaderType::Note) {
             let name = headers.strtab.get(header.sh_name as u64);
-            data.push(NoteSection::new(addrsize, &header, name, reader));
+            data.push(NoteSection::new(addrsize, &header, name, reader)?);
         }
 
         // try to parse notes from program headers
         if data.len() == 0 {
             for prheader in &prheaders.get_all(SegmentType::Note) {
-                data.push(NoteSection::new_from_core(addrsize, &prheader, reader));
+                data.push(NoteSection::new_from_core(addrsize, &prheader, reader)?);
             }
         }
 
-        NoteSections { data }
+        Ok(NoteSections { data })
     }
 }
 
